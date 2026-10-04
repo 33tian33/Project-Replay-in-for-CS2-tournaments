@@ -89,7 +89,7 @@ func (a *Service) relayLoop() {
 				if relayIdentity(a.s.Config) == key {
 					a.relayState.Online = false
 					if err != nil && ctx.Err() == nil {
-						a.relayState.Error = "云中继连接断开，正在重试；请检查网络与设备凭据"
+						a.relayState.Error = "云中继连接断开，正在重试；请检查网络与群组码"
 					}
 				}
 				a.mu.Unlock()
@@ -112,6 +112,9 @@ func (a *Service) relayLoop() {
 		}
 		select {
 		case <-a.ctx.Done():
+			if cancel != nil {
+				cancel()
+			}
 			return
 		case <-tick.C:
 		}
