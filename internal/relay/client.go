@@ -119,6 +119,7 @@ func Run(ctx context.Context, base, id string, h Hello, state func(Node), handle
 	for {
 		var m Message
 		if e = ws.ReadJSON(&m); e != nil {
+			pairCancel()
 			return e
 		}
 		if m.Type == "state" && m.Node != nil {
