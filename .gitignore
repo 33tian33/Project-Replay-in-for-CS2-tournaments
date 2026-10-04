@@ -1,0 +1,19 @@
+/dist/
+/replay-data/
+/.cache/
+*.log
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local validation runtime data
+/validation/utility-live/output/
+/validation/utility-live/run-*/
+/validation/utility-live/session/
+access-token
+
+# Generated live-validation recordings, screenshots, and captured game state.
+/validation/utility-live/*
+!/validation/utility-live/*.go
+!/validation/utility-live/*.py
