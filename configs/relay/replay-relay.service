@@ -1,0 +1,24 @@
+[Unit]
+Description=Project Replay Cloud Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=replay-relay
+Group=replay-relay
+WorkingDirectory=/opt/project-replay-relay
+ExecStart=/opt/project-replay-relay/replay-relay -listen :7790 -data /var/lib/project-replay-relay -cache-gib 10
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=project-replay-relay
+ReadWritePaths=/var/lib/project-replay-relay
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

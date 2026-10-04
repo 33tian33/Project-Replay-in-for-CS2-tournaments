@@ -1,0 +1,4 @@
+# Replace this with a domain whose DNS points at the fixed public IP.
+relay.example.com {
+    reverse_proxy 127.0.0.1:7790
+}
