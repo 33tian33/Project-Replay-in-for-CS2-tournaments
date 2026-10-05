@@ -19,8 +19,8 @@ async function main(){
   const cp=await port(),dp=await port(),ap=await port();
   const creds=[{role:'director'},{role:'agent'}];
   fs.mkdirSync(path.join(temp,'cfg'));
-  await start(path.join(root,`dist/ProjectReplay-Relay-0.2.5-linux-${arch}/replay-relay`),['-listen',`127.0.0.1:${cp}`,'-data',path.join(temp,'cloud')],cp);
-  const exe=path.join(root,`dist/ProjectReplay-0.2.5-linux-${arch}/project-replay`);
+  await start(path.join(root,`dist/ProjectReplay-Relay-0.2.6-linux-${arch}/replay-relay`),['-listen',`127.0.0.1:${cp}`,'-data',path.join(temp,'cloud')],cp);
+  const exe=path.join(root,`dist/ProjectReplay-0.2.6-linux-${arch}/project-replay`);
   await start(exe,['-role','director','-listen',`127.0.0.1:${dp}`,'-data',path.join(temp,'director'),'-no-browser'],dp);
   await start(exe,['-role','agent','-listen',`127.0.0.1:${ap}`,'-data',path.join(temp,'agent'),'-cs2-cfg',path.join(temp,'cfg'),'-no-browser'],ap);
   const app=path.join(temp,'electron.cjs');fs.writeFileSync(app,"const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>new BrowserWindow({width:1440,height:1100,show:false}).loadURL('about:blank'));\n");
