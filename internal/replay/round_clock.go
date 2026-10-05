@@ -41,6 +41,27 @@ func phaseOrder(phase string) int {
 func validRoundClock(c *RoundClock) bool {
 	return c != nil && c.Round > 0 && c.Round <= 1000 && phaseOrder(c.Phase) >= 1 && !math.IsNaN(c.Remaining) && !math.IsInf(c.Remaining, 0) && c.Remaining >= 0 && c.Remaining <= 600
 }
+
+func roundOver(p map[string]any) bool {
+	return stringField(obj(p, "round"), "phase") == "over" || stringField(obj(p, "phase_countdowns"), "phase") == "over"
+}
+
+// map.round may increment at the win announcement, before players stop fighting.
+// Keep the observed round through the entire over phase; advance at the next start.
+func roundNumber(p, previous map[string]any, previousRound int) int {
+	raw, ok := gsiCount(p, "map", "round")
+	if !ok {
+		return 0
+	}
+	if roundOver(p) {
+		old, known := gsiCount(previous, "map", "round")
+		if known && stringField(obj(p, "map"), "name") == stringField(obj(previous, "map"), "name") && previousRound > 0 && raw >= old && raw <= old+1 {
+			return previousRound
+		}
+		return max(1, raw)
+	}
+	return raw + 1
+}
 func readRoundClock(p map[string]any) *RoundClock {
 	phase := obj(p, "phase_countdowns")
 	raw, ok := phase["phase_ends_in"]
@@ -60,17 +81,20 @@ func readRoundClock(p map[string]any) *RoundClock {
 	default:
 		return nil
 	}
-	round, ok := gsiCount(p, "map", "round")
-	if !ok {
+	if _, ok := gsiCount(p, "map", "round"); !ok {
 		return nil
 	}
-	c := &RoundClock{Round: round + 1, Phase: stringField(phase, "phase"), Remaining: seconds}
+	c := &RoundClock{Round: roundNumber(p, nil, 0), Phase: stringField(phase, "phase"), Remaining: seconds}
 	if c.Round <= 0 || c.Round > 1000 || phaseOrder(c.Phase) < 0 || math.IsNaN(c.Remaining) || math.IsInf(c.Remaining, 0) || c.Remaining < 0 || c.Remaining > 600 {
 		return nil
 	}
 	return c
 }
 func (a *Service) updateRoundClockLocked(side string, p map[string]any, t int64) {
+	a.updateRoundClockForRoundLocked(side, p, t, roundNumber(p, a.previous[side], a.gsiRound[side]+1))
+}
+
+func (a *Service) updateRoundClockForRoundLocked(side string, p map[string]any, t int64, round int) {
 	if a.roundClocks == nil {
 		a.roundClocks = map[string]clockSample{}
 	}
@@ -80,6 +104,18 @@ func (a *Service) updateRoundClockLocked(side string, p map[string]any, t int64)
 		return
 	}
 	old := a.roundClocks[side]
+	c.Round = round
+	if a.phaseAnchors == nil {
+		a.phaseAnchors = map[string]clockSample{}
+	}
+	if old.Clock.Round != c.Round {
+		delete(a.phaseAnchors, side)
+	} else if old.Clock.Phase != c.Phase {
+		delete(a.phaseAnchors, side)
+		if validRoundClock(&old.Clock) && phaseOrder(old.Clock.Phase) < phaseOrder(c.Phase) && t-old.At <= 1500 {
+			a.phaseAnchors[side] = old
+		}
+	}
 	if a.liveDuration == nil {
 		a.liveDuration = map[string]float64{}
 	}
@@ -97,6 +133,9 @@ func (a *Service) updateRoundClockLocked(side string, p map[string]any, t int64)
 		progress = 0
 	}
 	if old.At > 0 && old.Clock.Round == c.Round && old.Clock.Phase == c.Phase && old.Clock.Remaining > c.Remaining && t-old.At < 2000 {
+		progress = t
+	}
+	if old.Clock.Round == c.Round && phaseOrder(old.Clock.Phase) >= 1 && phaseOrder(c.Phase) > phaseOrder(old.Clock.Phase) && old.ProgressAt > 0 && t-old.ProgressAt < 1500 {
 		progress = t
 	}
 	// A normal freeze/live boundary is continuous playback, not a pause.
@@ -131,7 +170,7 @@ func (a *Service) resolveRoundEventsLocked(now int64) {
 			e.Reason = "B 路已越过目标回合或阶段"
 			continue
 		}
-		if predicted, ok := freezePrediction(sample, *e); ok {
+		if predicted, ok := clockPrediction(sample, *e); ok {
 			e.Time = predicted
 			continue
 		}
@@ -184,7 +223,7 @@ func (a *Service) acceptRoundEvent(e Event) (Event, error) {
 	if e.Map == "" || e.Map != c.Map {
 		return e, errMapNotReady
 	}
-	if math.IsNaN(e.LiveDuration) || math.IsInf(e.LiveDuration, 0) || e.LiveDuration < 0 || e.LiveDuration > 600 || !e.RoundTiming || !validRoundClock(e.Clock) || e.Round != e.Clock.Round || e.Utility != nil {
+	if math.IsNaN(e.LiveDuration) || math.IsInf(e.LiveDuration, 0) || e.LiveDuration < 0 || e.LiveDuration > 600 || !e.RoundTiming || !validRoundClock(e.Clock) || e.Round != e.Clock.Round || e.Utility != nil || !validClockAnchor(e) {
 		return e, errors.New("需要回合号和有效阶段倒计时；道具轨迹仍使用独立路径")
 	}
 	e.Epoch = c.Epoch
@@ -382,9 +421,9 @@ func (a *Service) checkRoundJobLocked(j Job) error {
 		if !validRoundClock(e.Clock) {
 			return errors.New("任务回合时间无效")
 		}
-		if predicted, ok := freezePrediction(sample, e); ok {
+		if predicted, ok := clockPrediction(sample, e); ok {
 			if math.Abs(float64(predicted-e.Time)) > 500 {
-				return errors.New("冻结时间发生暂停或跳转")
+				return errors.New("阶段锚点时间发生暂停或跳转")
 			}
 		} else if sample.Clock.Round == e.Clock.Round && sample.Clock.Phase == e.Clock.Phase {
 			predicted := sample.At + int64((sample.Clock.Remaining-e.Clock.Remaining)*1000)
@@ -396,6 +435,25 @@ func (a *Service) checkRoundJobLocked(j Job) error {
 		}
 	}
 	return nil
+}
+
+func validClockAnchor(e Event) bool {
+	if e.ClockAnchor == nil {
+		return e.ClockOffset == 0
+	}
+	return validRoundClock(e.ClockAnchor) && e.Clock != nil && e.ClockAnchor.Round == e.Round && phaseOrder(e.ClockAnchor.Phase) < phaseOrder(e.Clock.Phase) && !math.IsNaN(e.ClockOffset) && !math.IsInf(e.ClockOffset, 0) && e.ClockOffset >= 0 && e.ClockOffset <= 600
+}
+
+// An A-side sample immediately before a phase change also locates early bomb/over
+// kills while B is still in the preceding phase. No fixed round/bomb duration.
+func clockPrediction(sample clockSample, e Event) (int64, bool) {
+	if predicted, ok := freezePrediction(sample, e); ok {
+		return predicted, true
+	}
+	if e.ClockAnchor != nil && validClockAnchor(e) && sample.Clock.Round == e.Round && sample.Clock.Phase == e.ClockAnchor.Phase {
+		return sample.At + int64((sample.Clock.Remaining-e.ClockAnchor.Remaining+e.ClockOffset)*1000), true
+	}
+	return 0, false
 }
 
 // The A feed measures this round's live duration at the freeze/live boundary.

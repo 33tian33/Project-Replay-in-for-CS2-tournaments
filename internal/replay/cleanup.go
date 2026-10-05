@@ -138,6 +138,7 @@ func (a *Service) cleanupLocked() error {
 	a.fullTriggered = false
 	a.previous = map[string]map[string]any{}
 	a.roundClocks = nil
+	a.phaseAnchors = nil
 	a.liveDuration = nil
 	a.gsiSeen = map[string]int64{}
 	a.gsiRound = map[string]int{}

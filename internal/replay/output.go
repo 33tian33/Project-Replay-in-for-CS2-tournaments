@@ -246,12 +246,11 @@ func (a *Service) detectOutputLocked(p map[string]any) {
 		return
 	} // Initial snapshots must never trigger a stale replay.
 	oldPhase := stringField(obj(old, "round"), "phase")
-	round := int(number(obj(p, "map"), "round")) + 1
-	// The final snapshot may already carry the incremented completed-round counter.
-	if oldPhase == "live" {
-		round = int(number(obj(old, "map"), "round")) + 1
+	round := roundNumber(p, old, roundNumber(old, nil, 0))
+	if a.gsiSeen["a"] > 0 {
+		round = a.gsiRound["a"] + 1
 	}
-	if phase == "live" && a.output.Kind == "round" && a.output.ID != "" && int(number(obj(p, "map"), "round"))+1 > a.output.Round {
+	if phase == "live" && a.output.Kind == "round" && a.output.ID != "" && round > a.output.Round {
 		clock := readRoundClock(p)
 		cut := clock != nil && clock.Phase == "live" && clock.Remaining <= 107
 		for steam, raw := range obj(p, "allplayers") {

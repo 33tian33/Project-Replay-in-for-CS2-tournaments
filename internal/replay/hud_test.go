@@ -72,7 +72,7 @@ func TestHUDCommands(t *testing.T) {
 		if err := a.setHUD(visible); err != nil {
 			t.Fatal(err)
 		}
-		want := "cl_drawhud 0\n"
+		want := teamHUDCommand + "\n"
 		if visible {
 			want = fullHUDCommand + "\n"
 		}
@@ -142,7 +142,7 @@ func TestTeamHUDCommandReadback(t *testing.T) {
 						commands <- line
 					}
 					if strings.HasPrefix(line, "cl_drawhud;") {
-						fmt.Fprintf(conn, "cl_drawhud = %t\ncrosshair = false\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", !applied)
+						fmt.Fprintf(conn, "cl_drawhud = %t\ncrosshair = false\ncl_draw_only_deathnotices = false\ncl_drawhud_force_deathnotices = -1\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", !applied)
 					}
 					if strings.HasPrefix(line, "echo ") {
 						fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))

@@ -13,10 +13,10 @@ import (
 const fullHUDCommand = "gameui_hide; hideconsole; demo_ui_mode 0; cl_drawhud 1; crosshair 1; cl_draw_only_deathnotices 0; cl_drawhud_force_radar 0; cl_drawhud_force_deathnotices 0; cl_drawhud_force_teamid_overhead 0; spec_show_xray 1"
 
 // Match CSStudio config/openhud_headless.json.
-const teamHUDCommand = "sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
+const teamHUDCommand = "sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 0; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
 
 func (a *Service) recordingHUDCommandLocked() string {
-	if a.s.TeamHUD {
+	if a.s.TeamHUD || a.s.HUDActiveSource != "" || a.hudHidden {
 		return teamHUDCommand
 	}
 	return fullHUDCommand
@@ -54,11 +54,11 @@ func hideGameUI(address string) error {
 	if _, err = n.queryWithTimeout(teamHUDCommand, time.Second); err != nil {
 		return err
 	}
-	reply, err := n.queryWithTimeout("cl_drawhud; crosshair; cl_drawhud_force_radar; cl_drawhud_force_teamid_overhead; spec_show_xray", time.Second)
+	reply, err := n.queryWithTimeout("cl_drawhud; crosshair; cl_draw_only_deathnotices; cl_drawhud_force_deathnotices; cl_drawhud_force_radar; cl_drawhud_force_teamid_overhead; spec_show_xray", time.Second)
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"cl_drawhud", "crosshair"} {
+	for _, name := range []string{"cl_drawhud", "crosshair", "cl_draw_only_deathnotices"} {
 		if value, known := hudValue(reply, name); !known || value {
 			return fmt.Errorf("游戏未确认关闭 %s：%.800s", name, reply)
 		}
@@ -66,7 +66,7 @@ func hideGameUI(address string) error {
 	if value, known := hudValue(reply, "spec_show_xray"); !known || !value {
 		return fmt.Errorf("游戏未确认开启 X 光：%.800s", reply)
 	}
-	for _, name := range []string{"cl_drawhud_force_radar", "cl_drawhud_force_teamid_overhead"} {
+	for _, name := range []string{"cl_drawhud_force_deathnotices", "cl_drawhud_force_radar", "cl_drawhud_force_teamid_overhead"} {
 		re := regexp.MustCompile(`(?mi)"?` + name + `"?\s*(?:=\s*)?"?-1\b`)
 		if !re.MatchString(reply) {
 			return fmt.Errorf("游戏未确认关闭 %s：%.800s", name, reply)
@@ -86,6 +86,9 @@ func hudValue(reply, name string) (bool, bool) {
 func (a *Service) setHUD(visible bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if visible && a.s.HUDActiveSource != "" {
+		return errors.New("OBS HUD 已启用，不能叠加游戏原生 HUD")
+	}
 	for _, j := range a.s.Jobs {
 		if reservesCamera(j.Status) {
 			return errors.New("录制任务已锁定，请等待完成后切换 HUD")
@@ -112,7 +115,7 @@ func (a *Service) setHUD(visible bool) error {
 		return err
 	}
 	defer n.conn.Close()
-	command := "cl_drawhud 0"
+	command := teamHUDCommand
 	if visible {
 		command = fullHUDCommand
 	}
@@ -168,7 +171,8 @@ func (a *Service) hudRoutes(api *http.ServeMux) {
 			return
 		}
 		a.s.HUDActiveSource = input
-		a.s.TeamHUD = !a.s.HUD.KeepNative
+		a.s.HUD = a.s.HUD.normalized()
+		a.s.TeamHUD = true
 		a.hudHidden = false
 		warning := ""
 		if a.s.Config.Mode == "live" {

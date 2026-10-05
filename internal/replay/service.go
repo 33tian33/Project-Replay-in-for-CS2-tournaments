@@ -14,6 +14,7 @@ import (
 )
 
 type Service struct {
+	phaseAnchors      map[string]clockSample
 	relayState        relayStatus
 	hudHidden         bool
 	maintenance       sync.RWMutex
@@ -145,6 +146,10 @@ func New(dir, role string) (*Service, error) {
 		}
 		a.s.HighlightsVersion = 1
 	}
+	a.s.HUD = a.s.HUD.normalized()
+	if a.s.HUDActiveSource != "" {
+		a.s.TeamHUD = true
+	}
 	// Migrate the former two-second warmup / transition defaults.
 	if a.s.Config.Setup == 2 && a.s.Config.Transition == 2 {
 		a.s.Config.Setup = .2
@@ -251,7 +256,11 @@ func (a *Service) snapshot() map[string]any {
 	s := jsonCopy(a.s)
 	s.Config.OBSPassword = ""
 	s.Config.GOTVPassword = ""
-	return map[string]any{"relay": a.relayState, "gsi": jsonCopy(a.gsiDiagnostics), "hud_import": a.hudImport, "obs_launch": a.obsLaunch, "cs2_launch": a.cs2Launch, "local_demo": a.localDemo, "output": a.output, "output_online": nowMS()-a.outputSeen < 3000, "output_error": a.outputError, "hotkey_status": a.hotkeyStatus, "current_round": a.gsiRound["a"] + 1, "output_url": "/output.html", "version": Version, "role": a.role, "state": s, "now": nowMS(), "observed": a.observed, "observed_at": a.observedAt, "round_clocks": jsonCopy(a.roundClocks), "storage_error": a.storageErr, "playback": a.playback, "remote_at": a.remoteAt, "remote_uncertainty_ms": a.remoteUncertainty}
+	side := "a"
+	if a.role == "agent" {
+		side = "b"
+	}
+	return map[string]any{"relay": a.relayState, "gsi": jsonCopy(a.gsiDiagnostics), "hud_import": a.hudImport, "obs_launch": a.obsLaunch, "cs2_launch": a.cs2Launch, "local_demo": a.localDemo, "output": a.output, "output_online": nowMS()-a.outputSeen < 3000, "output_error": a.outputError, "hotkey_status": a.hotkeyStatus, "current_round": a.gsiRound[side] + 1, "output_url": "/output.html", "version": Version, "role": a.role, "state": s, "now": nowMS(), "observed": a.observed, "observed_at": a.observedAt, "round_clocks": jsonCopy(a.roundClocks), "storage_error": a.storageErr, "playback": a.playback, "remote_at": a.remoteAt, "remote_uncertainty_ms": a.remoteUncertainty}
 }
 func (a *Service) configure(c Config) error {
 	a.mu.Lock()
@@ -287,6 +296,7 @@ func (a *Service) configure(c Config) error {
 	a.s.Config = c
 	a.localDemo = LocalDemo{}
 	a.roundClocks = nil
+	a.phaseAnchors = nil
 	a.liveDuration = nil
 	a.s.Queue = nil
 	a.s.HalfQueue = nil
@@ -319,7 +329,7 @@ func (a *Service) upsert(e Event) error {
 func (a *Service) upsertLocked(e Event) error {
 	c := a.s.Config
 	if e.RoundTiming {
-		if e.Utility != nil || e.Clock != nil && (!validRoundClock(e.Clock) || e.Round != e.Clock.Round) {
+		if e.Utility != nil || !validClockAnchor(e) || e.Clock != nil && (!validRoundClock(e.Clock) || e.Round != e.Clock.Round) {
 			return errors.New("回合时间或事件类型无效")
 		}
 		e.Time = 0
@@ -428,7 +438,8 @@ func (a *Service) tick() {
 	events := []Event{first}
 	for _, e := range selected[1:] {
 		s, b := bounds(e, c)
-		if !sameTarget(e, first) || s > end+1500 || b-start > 30000 {
+		last := events[len(events)-1]
+		if e.Round != first.Round || (first.Utility != nil || e.Utility != nil) && !sameTarget(e, first) || !compatible(last, e, c) || s > end+1500 || b-start > 30000 {
 			break
 		}
 		if c.TrackingMode == "native" && first.Utility != nil {
@@ -437,7 +448,7 @@ func (a *Service) tick() {
 			}
 		}
 		events = append(events, e)
-		end = b
+		end = max(end, b)
 	}
 	j := Job{Utility: first.Utility, ID: id(), Epoch: c.Epoch, Match: c.Match, Map: c.Map, Player: first.Player, Slot: c.Mappings[first.Player], Events: events, Start: start, End: end, Status: "COMMITTED", Demo: c.Mode == "demo", Artifacts: []Artifact{}}
 	if c.TrackingMode == "native" && first.Utility != nil {

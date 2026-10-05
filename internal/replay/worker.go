@@ -36,7 +36,6 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 	a.mu.Lock()
 	valid := a.s.Config.Epoch == j.Epoch && a.s.Config.Match == j.Match && a.s.Config.Map == j.Map
 	clockErr := a.checkRoundJobLocked(j)
-	a.hudHidden = false
 	a.mu.Unlock()
 	if clockErr != nil {
 		return nil, clockErr
@@ -99,10 +98,11 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 			return nil, errors.New("OBS 已在录制，拒绝接管现有录制")
 		}
 		// Reapply the selected HUD mode before recording and after camera switches.
-		if e = netCommand(c.NetCon, a.recordingHUDCommand()); e != nil {
+		if e = a.prepareRecordingHUD(o, c); e != nil {
 			return nil, fmt.Errorf("录制前应用 HUD 设置失败: %w", e)
 		}
-		camera, e := a.prepareCamera(j, c)
+		initial, shotAt := cameraJob(j, c, j.Start)
+		camera, e := a.prepareCamera(initial, c)
 		if e != nil {
 			return nil, e
 		}
@@ -179,7 +179,20 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 				break
 			}
 			if player, ok := camera.(*playerCamera); ok {
-				player.job = j
+				target, nextShotAt := cameraJob(j, c, nowMS())
+				if nextShotAt != shotAt {
+					if nowMS() >= target.Start {
+						return nil, errors.New("MISSED_WINDOW：未能在目标击杀前直接切换视角")
+					}
+					next, err := a.prepareCamera(target, c)
+					if err != nil {
+						return nil, err
+					}
+					camera.Close()
+					camera, shotAt = next, nextShotAt
+				} else {
+					player.job = target
+				}
 			}
 			if e = camera.Check(); e != nil {
 				return nil, e
@@ -223,7 +236,7 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 	}
 	a.captureMu.Unlock()
 	locked = false
-	a.jobUpdate(j.ID, "FINALIZING", "生成 1.5 秒片段并校验 SHA-256", nil)
+	a.jobUpdate(j.ID, "FINALIZING", "按实际镜头窗口生成击杀片段并校验 SHA-256", nil)
 	artifacts := []Artifact{}
 	for _, event := range j.Events {
 		artifactID := j.ID + "-" + event.ID
@@ -236,11 +249,16 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 				return nil, e
 			}
 		} else {
-			offset := float64(event.Time-replayBeforeMS-origin) / 1000
-			if offset < 0 {
-				return nil, errors.New("素材缺少击杀前一秒")
+			clipStart, clipEnd := eventClipBounds(j, event, c)
+			if clipStart > event.Time-cameraBeforeMS || clipEnd < event.Time+cameraAfterMS {
+				return nil, errors.New("素材未覆盖击杀的有效镜头窗口")
 			}
-			args := []string{"-hide_banner", "-loglevel", "error", "-y", "-ss", fmt.Sprintf("%.3f", offset), "-i", raw, "-t", strconv.FormatFloat(replayDuration, 'f', 3, 64), "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", temp}
+			wantedDuration := float64(clipEnd-clipStart) / 1000
+			offset := float64(clipStart-origin) / 1000
+			if offset < 0 {
+				return nil, errors.New("素材缺少击杀前镜头")
+			}
+			args := []string{"-hide_banner", "-loglevel", "error", "-y", "-ss", fmt.Sprintf("%.3f", offset), "-i", raw, "-t", strconv.FormatFloat(wantedDuration, 'f', 3, 64), "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", temp}
 			if e := runCommand(a.ctx, 90*time.Second, c.FFmpeg, args...); e != nil {
 				os.Remove(temp)
 				return nil, e
@@ -251,7 +269,7 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 				os.Remove(temp)
 				return nil, e
 			}
-			if duration < replayDuration-0.05 || duration > replayDuration+0.08 {
+			if duration < wantedDuration-0.05 || duration > wantedDuration+0.08 {
 				os.Remove(temp)
 				return nil, fmt.Errorf("片段时长不合格: %.3fs", duration)
 			}

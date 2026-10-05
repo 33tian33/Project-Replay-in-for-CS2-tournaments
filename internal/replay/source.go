@@ -87,6 +87,13 @@ func ParseSource(ctx context.Context, r io.Reader, broadcast string, opt SourceO
 	pending := []sourceDeath{}
 	roundKills := map[string]int{}
 	prevRound := -1
+	currentRound := 0
+	p.RegisterEventHandler(func(events.RoundStart) {
+		currentRound = p.GameState().TotalRoundsPlayed() + 1
+	})
+	p.RegisterEventHandler(func(events.RoundFreezetimeEnd) {
+		currentRound = p.GameState().TotalRoundsPlayed() + 1
+	})
 	sourceNow := func() int64 { return p.CurrentTime().Milliseconds() }
 	p.RegisterEventHandler(func(e events.InfernoStart) {
 		fires[e.Inferno] = &sourceThrow{id: fmt.Sprintf("%s-fire-%d-%d", opt.SourceID, p.GameState().IngameTick(), e.Inferno.Entity.ID()), start: sourceNow()}
@@ -128,7 +135,11 @@ func ParseSource(ctx context.Context, r io.Reader, broadcast string, opt SourceO
 			return
 		}
 		tick := int64(p.GameState().IngameTick())
-		round := p.GameState().TotalRoundsPlayed() + 1
+		// Keep post-win/save kills in this round until the next RoundStart.
+		if currentRound == 0 {
+			currentRound = p.GameState().TotalRoundsPlayed() + 1
+		}
+		round := currentRound
 		if round != prevRound {
 			roundKills = map[string]int{}
 			prevRound = round

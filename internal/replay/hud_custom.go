@@ -19,6 +19,8 @@ type HUDSettings struct {
 }
 
 func (h HUDSettings) normalized() HUDSettings {
+	// Recording uses exactly one OBS overlay; migrate old double-HUD settings.
+	h.KeepNative = false
 	if h.Mode == "" {
 		h.Mode = "builtin"
 	}
@@ -219,15 +221,73 @@ func installHUDSource(o *obs, h HUDSettings, host, previous string) (string, str
 			return "", "", err
 		}
 	}
-	// Disable only our managed overlays and the previously selected external source.
-	for _, raw := range rows {
-		m, _ := raw.(map[string]any)
-		name := stringField(m, "sourceName")
-		if name != input && (name == "Project Replay Team HUD" || name == "Project Replay Custom HUD" || previous != "" && name == previous) {
-			if _, err = o.call("SetSceneItemEnabled", map[string]any{"sceneName": sceneName, "sceneItemId": m["sceneItemId"], "sceneItemEnabled": false}); err != nil {
-				return "", "", err
-			}
-		}
+	if err := enforceSingleHUD(o, sceneName, input, previous, itemID); err != nil {
+		return "", "", err
 	}
 	return sceneName, input, nil
+}
+
+// A source can have multiple scene items, including inside groups/nested scenes.
+// Only the selected root item stays enabled. Unrelated artwork is left alone.
+func enforceSingleHUD(o *obs, root, input, previous string, itemID float64) error {
+	seen := map[string]bool{}
+	var visit func(string, bool) error
+	visit = func(scene string, group bool) error {
+		if seen[scene] {
+			return nil
+		}
+		seen[scene] = true
+		kind := "GetSceneItemList"
+		if group {
+			kind = "GetGroupSceneItemList"
+		}
+		items, err := o.call(kind, map[string]any{"sceneName": scene})
+		if err != nil {
+			return err
+		}
+		rows, _ := items["sceneItems"].([]any)
+		for _, raw := range rows {
+			m, _ := raw.(map[string]any)
+			name := stringField(m, "sourceName")
+			managed := name == "Project Replay Team HUD" || name == "Project Replay Custom HUD" || strings.HasPrefix(name, "Project Replay ZIP HUD ") || name == previous || name == input
+			if managed {
+				enabled := input != "" && scene == root && name == input && number(m, "sceneItemId") == itemID
+				if _, err := o.call("SetSceneItemEnabled", map[string]any{"sceneName": scene, "sceneItemId": m["sceneItemId"], "sceneItemEnabled": enabled}); err != nil {
+					return err
+				}
+			}
+			isGroup, _ := m["isGroup"].(bool)
+			if isGroup || stringField(m, "sourceType") == "OBS_SOURCE_TYPE_SCENE" {
+				if err := visit(name, isGroup); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return visit(root, false)
+}
+
+func (a *Service) prepareRecordingHUD(o *obs, c Config) error {
+	a.mu.Lock()
+	input, command := a.s.HUDActiveSource, a.recordingHUDCommandLocked()
+	a.mu.Unlock()
+	if input != "" {
+		scene, err := o.call("GetCurrentProgramScene", nil)
+		if err != nil {
+			return err
+		}
+		name := stringField(scene, "currentProgramSceneName")
+		item, err := o.call("GetSceneItemId", map[string]any{"sceneName": name, "sourceName": input})
+		if err != nil {
+			return fmt.Errorf("录制场景缺少所选 HUD: %w", err)
+		}
+		if err := enforceSingleHUD(o, name, input, "", number(item, "sceneItemId")); err != nil {
+			return err
+		}
+	}
+	if command == teamHUDCommand {
+		return hideGameUI(c.NetCon)
+	}
+	return netCommand(c.NetCon, command)
 }

@@ -27,7 +27,7 @@ func TestCustomHUDValidationAndPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	if b.s.HUD.URL != h.URL || !b.s.HUD.KeepNative || b.s.HUD.Width != 1920 {
+	if b.s.HUD.URL != h.URL || b.s.HUD.KeepNative || b.s.HUD.Width != 1920 {
 		t.Fatal("settings not persisted", b.s.HUD)
 	}
 	b.active = true
@@ -135,7 +135,7 @@ func TestCustomHUDSwitching(t *testing.T) {
 		t.Error("existing source mutated or prior overlay still visible")
 	}
 	mu.Unlock()
-	if a.s.TeamHUD || a.s.HUDActiveSource != "OpenHUD Broadcast" {
+	if !a.s.TeamHUD || a.s.HUDActiveSource != "OpenHUD Broadcast" {
 		t.Fatal("wrong HUD preference")
 	}
 	apply(HUDSettings{})

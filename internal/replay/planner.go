@@ -45,6 +45,9 @@ func compatible(a, b Event, c Config) bool {
 	if sameTarget(a, b) {
 		return true
 	}
+	if a.Utility == nil && b.Utility == nil && a.Round == b.Round {
+		return b.Time-a.Time >= cameraBeforeMS+cameraAfterMS+2*int64(c.Guard*1000)+switchSetupMS(c)
+	}
 	_, end := bounds(a, c)
 	start, _ := bounds(b, c)
 	return end+int64((c.Transition+c.Setup)*1000) <= start
@@ -202,10 +205,10 @@ func Plan(events []Event, jobs []Job, c Config, now int64) []Event {
 		e := &out[k]
 		if selected[e.ID] {
 			e.Status = "SCHEDULED"
-			e.Reason = "完整覆盖优先 · 暂定计划"
+			e.Reason = "连杀优先 · 连续录制并直接切换目标"
 		} else if eligible[e.ID] {
 			e.Status = "CONFLICT"
-			e.Reason = "视角窗口冲突，优先覆盖更多完整击杀"
+			e.Reason = "切镜时间不足，优先保留同一玩家连杀"
 		}
 	}
 	return out

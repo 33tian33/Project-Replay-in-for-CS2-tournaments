@@ -174,7 +174,7 @@ func (a *Service) hudZipRoutes(mux, api *http.ServeMux) {
 		defer a.mu.Unlock()
 		g := jsonCopy(a.previous["b"])
 		delete(g, "auth")
-		respond(w, 200, map[string]any{"gsi": g, "teams": a.s.Config.Teams, "visible": !a.hudHidden, "fresh": nowMS()-a.gsiSeen["b"] < 2000})
+		respond(w, 200, map[string]any{"gsi": g, "round": a.gsiRound["b"] + 1, "clock": a.roundClocks["b"].Clock, "teams": a.s.Config.Teams, "visible": !a.hudHidden, "fresh": nowMS()-a.gsiSeen["b"] < 2000})
 	})
 }
 func (a *Service) serveHUDPackage(w http.ResponseWriter, r *http.Request) {

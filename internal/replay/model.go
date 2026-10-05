@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "0.2.5"
+const Version = "0.2.6"
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 func id() string {
@@ -142,6 +142,8 @@ type Utility struct {
 }
 
 type Event struct {
+	ClockAnchor  *RoundClock `json:"clock_anchor,omitempty"`
+	ClockOffset  float64     `json:"clock_offset,omitempty"`
 	LiveDuration float64     `json:"live_duration,omitempty"`
 	Clutch       int         `json:"clutch,omitempty"`
 	RoundTiming  bool        `json:"round_timing,omitempty"`

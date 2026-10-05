@@ -205,6 +205,7 @@ func (a *Service) resetDemoTimelineLocked() {
 	a.observed = ""
 	a.observedAt = 0
 	a.roundClocks = nil
+	a.phaseAnchors = nil
 	a.liveDuration = nil
 	a.output = OutputSession{}
 	a.endRound = 0

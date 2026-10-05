@@ -39,7 +39,7 @@ func TestPlannerCases(t *testing.T) {
 		want   []string
 	}{
 		{"double kill beats first arrival", []Event{ev("a", "A", 10000), ev("b", "B", 10200), ev("c", "B", 10700)}, nil, []string{"b", "c"}},
-		{"guard plus transition", []Event{ev("a", "A", 10000), ev("b", "B", 12100)}, nil, []string{"a"}},
+		{"nearby kills use direct cut", []Event{ev("a", "A", 10000), ev("b", "B", 12100)}, nil, []string{"a", "b"}},
 		{"separate windows", []Event{ev("a", "A", 10000), ev("b", "B", 13000)}, nil, []string{"a", "b"}},
 		{"committed reservation", []Event{ev("b", "B", 10200), ev("c", "B", 10700)}, []Job{{Start: 8800, End: 11200, Status: "CAPTURING"}}, []string{}},
 	}

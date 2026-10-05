@@ -78,7 +78,7 @@ func TestPriorityPreservesClutchAndTwoSecondChain(t *testing.T) {
 	for _, enemies := range []int{2, 3} {
 		clutch := ev("clutch", "C", 11500)
 		clutch.Clutch = enemies
-		if got := chosen(Plan([]Event{ev("before", "X", 10000), ev("after", "Y", 13000), clutch}, nil, c, 0)); !reflect.DeepEqual(got, []string{"clutch"}) {
+		if got := chosen(Plan([]Event{ev("before", "X", 11000), ev("after", "Y", 12000), clutch}, nil, c, 0)); !reflect.DeepEqual(got, []string{"clutch"}) {
 			t.Fatal(got)
 		}
 	}

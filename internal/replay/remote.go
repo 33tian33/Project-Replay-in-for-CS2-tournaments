@@ -361,9 +361,16 @@ func (a *Service) acceptJob(j Job) (Job, error) {
 		return j, errors.New("B 路已确认映射与任务不符")
 	}
 	seen := map[string]bool{}
-	for _, e := range j.Events {
-		if !validID(e.ID) || seen[e.ID] || e.Player != j.Player || !sameTarget(e, Event{Player: j.Player, Utility: j.Utility, Match: j.Match, Map: j.Map, Epoch: j.Epoch}) || !resolvedUtility(e.Utility) || e.Epoch != j.Epoch || e.Match != j.Match || e.Map != j.Map || e.GroupCount > 1 || e.Uncertainty > c.Guard || e.Uncertainty < 0 || e.Time-replayBeforeMS < j.Start || e.Time+replayAfterMS > j.End {
+	for i, e := range j.Events {
+		targetOK := j.Utility == nil && e.Utility == nil || sameTarget(e, Event{Player: j.Player, Utility: j.Utility, Match: j.Match, Map: j.Map, Epoch: j.Epoch})
+		if !validID(e.ID) || seen[e.ID] || !targetOK || !resolvedUtility(e.Utility) || e.Epoch != j.Epoch || e.Match != j.Match || e.Map != j.Map || e.GroupCount > 1 || e.Uncertainty > c.Guard || e.Uncertainty < 0 || e.Time-replayBeforeMS < j.Start || e.Time+replayAfterMS > j.End {
 			return j, errors.New("事件不属于任务窗口或身份")
+		}
+		if e.Player == "" || i == 0 && e.Player != j.Player || e.Round != j.Events[0].Round || i > 0 && (e.Time < j.Events[i-1].Time || !compatible(j.Events[i-1], e, c)) {
+			return j, errors.New("任务镜头顺序或切换间隔无效")
+		}
+		if !j.Demo && j.Utility == nil && c.Mappings[e.Player] <= 0 {
+			return j, errors.New("B 路缺少切换目标的已确认映射")
 		}
 		if !j.Demo && j.Utility != nil && c.TrackingMode == "native" && !nativeTrackReady(e, c) {
 			return j, errors.New("道具轨迹未覆盖事件窗口")

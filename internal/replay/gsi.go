@@ -65,11 +65,13 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 	}
 	t := nowMS()
 	gameMap := stringField(obj(payload, "map"), "name")
-	round := int(number(obj(payload, "map"), "round"))
+	previousRound := a.gsiRound[side] + 1
+	round := roundNumber(payload, a.previous[side], previousRound) - 1
 	if gameMap == "" {
 		// Menu/loading snapshots must not create kills against the last known map.
 		delete(a.previous, side)
 		delete(a.roundClocks, side)
+		delete(a.phaseAnchors, side)
 		return nil
 	}
 	authority := "a"
@@ -96,6 +98,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		a.s.Config.CalibratedUntil = 0
 		a.s.Config.Paused = !a.s.Config.AutoCapture
 		delete(a.roundClocks, side)
+		delete(a.phaseAnchors, side)
 		delete(a.previous, side)
 		a.logLocked("warn", "GSI 地图变化或回档：旧时间线已失效")
 	}
@@ -104,9 +107,10 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		delete(a.previous, side)
 		delete(a.roundClocks, side)
 		delete(a.liveDuration, side)
+		delete(a.phaseAnchors, side)
 		a.logLocked("warn", "GSI 断流后恢复：保留待录任务，重新建立计数和时钟基线")
 	}
-	a.updateRoundClockLocked(side, payload, t)
+	a.updateRoundClockForRoundLocked(side, payload, t, round+1)
 	a.gsiMap[side] = gameMap
 	a.gsiSeen[side] = t
 	a.gsiRound[side] = round
@@ -131,7 +135,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		return nil
 	}
 	oldPlayers := obj(old, "allplayers")
-	oldRound := int(number(obj(old, "map"), "round"))
+	oldRound := previousRound - 1
 	if oldRound > round {
 		return nil
 	}
@@ -181,6 +185,9 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 			e.Uncertainty = .15 // GSI countdown estimate; independent of legacy delay calibration.
 			e.Time = 0
 			e.Clock = readRoundClock(payload)
+			if e.Clock != nil {
+				e.Clock.Round = e.Round
+			}
 			e.LiveDuration = a.liveDuration[side]
 			if !validRoundClock(e.Clock) {
 				e.Clock = nil
@@ -188,6 +195,9 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 			// Last kill may arrive with the new phase; project from the preceding
 			// active phase so B can start recording BEFORE the phase transition.
 			beforeClock := readRoundClock(old)
+			if beforeClock != nil {
+				beforeClock.Round = previousRound
+			}
 			if validRoundClock(beforeClock) && (e.Clock == nil || e.Clock.Phase != beforeClock.Phase) && beforeClock.Round == e.Round {
 				previousAt := a.gsiDiagnostics[side].AcceptedAt
 				if t-previousAt <= 1500 {
@@ -196,6 +206,11 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 						e.Clock = beforeClock
 					}
 				}
+			}
+			if anchor, ok := a.phaseAnchors[side]; ok && e.Clock != nil && anchor.Clock.Round == e.Round && phaseOrder(anchor.Clock.Phase) < phaseOrder(e.Clock.Phase) {
+				clock := anchor.Clock
+				e.ClockAnchor = &clock
+				e.ClockOffset = float64(t-anchor.At) / 1000
 			}
 		}
 		if err := a.upsertLocked(e); err != nil {
@@ -228,6 +243,7 @@ func (a *Service) adoptMapLocked(gameMap string) {
 	a.gsiSeen = map[string]int64{}
 	a.gsiRound = map[string]int{}
 	a.roundClocks = nil
+	a.phaseAnchors = nil
 	a.liveDuration = nil
 	a.observed = ""
 	a.observedAt = 0
