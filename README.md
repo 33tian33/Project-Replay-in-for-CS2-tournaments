@@ -1,11 +1,21 @@
-# Project Replay 0.2.5
+# Project Replay 0.2.6
+
+## 0.2.6 单 HUD、保枪击杀与连续切镜
+
+- OBS 当前录制场景只启用所选 HUD 的一个实例，关闭旧 ZIP、内置、自定义及上次选用的外部 HUD，包括组和嵌套场景中的重复项。录制前回读确认游戏原生 HUD、准星、雷达、击杀提示和头顶标记已隐藏；旧的“保留原生 HUD”设置自动迁移。
+- 常规时间、下包后和胜负已判定后的保枪击杀统一归属当前回合，下一回合开始才递增。A/B 时钟、事件、HUD、回放队列及 Demo 解析使用相同语义。通过阶段切换前的时钟锚点提前定位早期保枪击杀，不依赖固定结算时长。
+- 时间连续的同回合击杀合并为一次录制任务，同人连杀优先；跨玩家使用 `spec_player` 直接定位并以 B 路 GSI 确认，禁止逐个轮换。密集切镜时缩短片段首尾，至少保留击杀前 250 ms、后 150 ms；默认参数下不同玩家击杀间隔至少 1 秒，无法兼顾的重叠击杀择优。
+- Windows 导播端与 Linux 录制端应一起升级，以传递新增阶段锚点。中继协议不变。保留原有 `replay-data` 即可沿用配置与素材。
+
+验证包括：真实 Demo 中 2 次胜负判定后击杀的回合归属；模拟 OBS/NetCon/GSI 下 A→B→A 只启动一次录制、仅发送三次目标切换，并使用实际 FFmpeg 裁剪和校验视频。真实 OBS 合成画面及 Windows/Linux 双机实录仍需现场验收。
+
 
 ## 0.2.5 群组码连接与自动精选
 
 - 三端统一升级：中继无需设备 Token / devices.json；客户端填写中继地址和相同四位群组码即可接入，设备 ID 自动生成。手动与自动配对仍可选。旧 systemd 启动参数请移除 `-credentials`。
 - 新录制素材自动选入精选：半场包含设定半场结束回合以内的全部录制击杀，全场包含当前地图全部录制击杀（含加时）。比赛结束由 A 路 GSI `gameover` 自动触发全场精选，可关闭自动播出或手动排序、移除和播放。
 - 精选等待尚在录制 / 回传的素材并追加播放；半场优先于回合，全场优先于其他播出。换地图或切换采集会话后清空列表。升级时将已有当前会话素材补入精选。
-- 录制机默认 X 光开启，覆盖 CS2 启动、GOTV 连接、镜头切换、Demo 与录制；原生 / 自定义 HUD 均保持开启。
+- 录制机默认 X 光开启，覆盖 CS2 启动、GOTV 连接、镜头切换、Demo 与录制；使用原生或自定义 HUD 时均保持 X 光开启。
 
 
 ## 0.2.1 支持云服务器 IP 直连
@@ -21,9 +31,9 @@ CS2 双端回放软件首版：Windows 导播台 + Linux 录制 Agent。中文�
 
 | 设备 | 文件 |
 |---|---|
-| Windows 10/11 x64 | `dist/ProjectReplay-windows-x64-portable.exe`，或附说明的 `ProjectReplay-0.2.5-windows-amd64-portable.zip` |
-| DGX Spark / Linux ARM64 | `dist/ProjectReplay-0.2.5-linux-arm64.tar.gz` |
-| 普通 Linux x64 | `dist/ProjectReplay-0.2.5-linux-amd64.tar.gz` |
+| Windows 10/11 x64 | `dist/ProjectReplay-windows-x64-portable.exe`，或附说明的 `ProjectReplay-0.2.6-windows-amd64-portable.zip` |
+| DGX Spark / Linux ARM64 | `dist/ProjectReplay-0.2.6-linux-arm64.tar.gz` |
+| 普通 Linux x64 | `dist/ProjectReplay-0.2.6-linux-amd64.tar.gz` |
 
 Windows：将 EXE 放入可写目录，双击启动，浏览器自动打开本地导播台。免安装、不需要 Python/.NET/Node；EXE 未做代码签名。首次运行在 EXE 同目录创建 `replay-data`，包括配置、素材和状态；移动程序时一并移动此目录。ZIP 内含启动脚本、说明和许可证。浏览器未打开时，使用终端显示的地址。
 
@@ -172,11 +182,11 @@ python3 scripts/build.py
 
 ### 自动隐藏游戏 UI 与最低画质
 
-Linux 安装战队 HUD 到 OBS 时，真实模式会按 CSStudio 的 `openhud_headless.json` 发送 `sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；点击原生 HUD 按钮可退出该模式。
+Linux 安装战队 HUD 到 OBS 时，真实模式会按 CSStudio 的 `openhud_headless.json` 发送 `sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 0; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；启用 OBS HUD 后禁止再显示游戏原生 HUD，避免重复叠加。
 
 通过 Replay 启动新的 CS2 进程前，自动备份并原子更新 Snap Steam 账户的 `cs2_video.txt`：关闭抗锯齿、环境光遮蔽和垂直同步，阴影、纹理、粒子、过滤采用最低设置，HDR / FSR 采用性能设置，输出保留 1920×1080。配置缺失、字段异常或发现多个账户时会报错并停止启动。已经运行的 CS2 不会被强制重启，画质在下次关闭后重新启动时应用。
 
-回放窗口现为击杀前 1 秒、击杀后 0.5 秒，总长 1.5 秒；采集保护量不计入成片。GOTV 连接、CS2 启动和录制默认发送 `spec_show_xray 1`，自定义 HUD 保持 X 光开启。命令说明见 [CS2 ConVar 转储](https://cs2.poggu.me/dumped-data/convar-list/)。
+常规回放窗口为击杀前 1 秒、击杀后 0.5 秒；密集跨玩家切镜处按实际镜头边界裁剪，至少保留前 250 ms、后 150 ms。采集保护量不计入成片。GOTV 连接、CS2 启动和录制默认发送 `spec_show_xray 1`，自定义 HUD 保持 X 光开启。命令说明见 [CS2 ConVar 转储](https://cs2.poggu.me/dumped-data/convar-list/)。
 
 ## 项目许可证
 
@@ -205,7 +215,7 @@ Linux 录制控制 →「自定义 HUD 设置」支持：
 独立 HUD 程序需先运行，并使用它自身的配置接收 CS2 GSI；Replay 不会自动适配第三方协议、启动任意可执行文件或重写其比赛名单。网页输出由 Linux OBS 访问；Windows 浏览器中的 localhost 不是 Linux 服务地址。只有窗口输出的程序需运行在 `DISPLAY=:20`，并提前在该无头 OBS 添加窗口采集源。
 
 「保存并应用到 OBS」持久保存所选 HUD；切换时隐藏前一个 HUD 源，保留源本身。
-可勾选「保留游戏原生 HUD」。默认隐藏游戏原生 HUD，并在后续 CS2 启动和录制切镜头时保持。
+OBS HUD 启用后隐藏游戏原生 HUD，并在后续 CS2 启动和录制切镜头时保持；旧的保留原生 HUD 设置自动关闭。
 OBS 正在录制或直播时禁止切换。游戏尚未启动时，OBS 安装成功并显示游戏状态未同步提示；启动游戏后可再次点击「应用 HUD 到 OBS」。
 
 ### ZIP HUD 导入并自动启用（0.2.4）
@@ -225,7 +235,7 @@ Linux 录制控制 → 选择本地 `.zip` →「导入并自动启用」。上�
 
 Replay 自动注入只读数据桥：
 
-- `window.ReplayHUD.state`：最近一次数据，包含 `gsi`、`teams`、`fresh`、`visible`。
+- `window.ReplayHUD.state`：最近一次数据，包含 `gsi`、统一回合号 `round`、阶段时钟 `clock`、`teams`、`fresh`、`visible`。
 - `window.addEventListener('replay-hud', e => ...)`：`e.detail` 为上述数据，每约 100 ms 更新。
 - `window.addEventListener('gsi', e => ...)`：`e.detail` 为原始 CS2 GSI，剔除认证信息。
 - `fetch('/hud-api/state')`：内置 HUD 的战队名称、图标、比分、回合与倒计时接口。
