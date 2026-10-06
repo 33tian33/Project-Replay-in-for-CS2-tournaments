@@ -22,13 +22,16 @@ func (h HUDSettings) normalized() HUDSettings {
 	// Recording uses exactly one OBS overlay; migrate old double-HUD settings.
 	h.KeepNative = false
 	if h.Mode == "" {
-		h.Mode = "builtin"
+		h.Mode = "astra"
 	}
 	if h.Width == 0 {
 		h.Width = 1920
 	}
 	if h.Height == 0 {
 		h.Height = 1080
+	}
+	if h.Mode == "openhud" && strings.TrimSpace(h.Source) == "" {
+		h.Source = "OpenHUD Broadcast"
 	}
 	h.URL = strings.TrimSpace(h.URL)
 	h.Source = strings.TrimSpace(h.Source)
@@ -40,7 +43,7 @@ func (h HUDSettings) validate() error {
 		return errors.New("HUD 尺寸须在 64–7680 × 64–4320 之间")
 	}
 	switch h.Mode {
-	case "builtin":
+	case "builtin", "astra":
 	case "package":
 		u, e := url.Parse(h.URL)
 		if e != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || !strings.HasPrefix(u.Path, "/hud-packages/") || !strings.HasPrefix(h.Source, "Project Replay ZIP HUD ") {
@@ -51,12 +54,12 @@ func (h HUDSettings) validate() error {
 		if e != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || len(h.URL) > 4096 || strings.ContainsAny(h.URL, "\r\n\x00") {
 			return errors.New("请输入 HUD 程序提供的 http(s) 网页输出地址")
 		}
-	case "source":
-		if h.Source == "" || len(h.Source) > 200 || strings.ContainsAny(h.Source, "\r\n\x00") || h.Source == "Project Replay Team HUD" || h.Source == "Project Replay Custom HUD" {
+	case "source", "openhud":
+		if h.Source == "" || len(h.Source) > 200 || strings.ContainsAny(h.Source, "\r\n\x00") || h.Source == "Project Replay Astra HUD" || h.Source == "Project Replay Team HUD" || h.Source == "Project Replay Custom HUD" {
 			return errors.New("请选择独立 HUD 的 OBS 源，不能使用 Replay 自有 HUD 源")
 		}
 	default:
-		return errors.New("HUD 类型须为内置、程序网页输出或已有 OBS 源")
+		return errors.New("HUD 类型须为 Astra、OpenHUD、内置战队、ZIP、网页输出或已有 OBS 源")
 	}
 	return nil
 }
@@ -148,19 +151,23 @@ func installHUDSource(o *obs, h HUDSettings, host, previous string) (string, str
 	input := "Project Replay Team HUD"
 	settings := map[string]any{"width": h.Width, "height": h.Height, "is_local_file": false, "shutdown": false, "restart_when_active": false, "css": "body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }"}
 	switch h.Mode {
-	case "builtin":
+	case "builtin", "astra":
 		_, port, e := net.SplitHostPort(host)
 		if e != nil {
 			return "", "", e
 		}
 		settings["url"] = "http://127.0.0.1:" + port + "/hud.html"
+		if h.Mode == "astra" {
+			input = "Project Replay Astra HUD"
+			settings["url"] = "http://127.0.0.1:" + port + "/astra/index.html"
+		}
 	case "package":
 		input = h.Source
 		settings["url"] = h.URL
 	case "url":
 		input = "Project Replay Custom HUD"
 		settings["url"] = h.URL
-	case "source":
+	case "source", "openhud":
 		input = h.Source
 	}
 	inputs, err := o.call("GetInputList", nil)
@@ -173,19 +180,19 @@ func installHUDSource(o *obs, h HUDSettings, host, previous string) (string, str
 		m, _ := raw.(map[string]any)
 		if stringField(m, "inputName") == input {
 			exists = true
-			if h.Mode != "source" && stringField(m, "inputKind") != "" && stringField(m, "inputKind") != "browser_source" {
+			if (h.Mode != "source" && h.Mode != "openhud") && stringField(m, "inputKind") != "" && stringField(m, "inputKind") != "browser_source" {
 				return "", "", fmt.Errorf("OBS 源 %s 不是浏览器源", input)
 			}
 		}
 	}
-	if h.Mode == "source" && !exists {
+	if (h.Mode == "source" || h.Mode == "openhud") && !exists {
 		return "", "", errors.New("未找到所选 OBS 源，请先在无头 OBS 中添加 HUD 浏览器源或窗口采集源")
 	}
 	var item map[string]any
 	if !exists {
 		item, err = o.call("CreateInput", map[string]any{"sceneName": sceneName, "inputName": input, "inputKind": "browser_source", "inputSettings": settings, "sceneItemEnabled": true})
 	} else {
-		if h.Mode != "source" {
+		if h.Mode != "source" && h.Mode != "openhud" {
 			_, err = o.call("SetInputSettings", map[string]any{"inputName": input, "inputSettings": settings, "overlay": true})
 			if err != nil {
 				return "", "", err
@@ -211,7 +218,7 @@ func installHUDSource(o *obs, h HUDSettings, host, previous string) (string, str
 	if _, err = o.call("SetSceneItemIndex", map[string]any{"sceneName": sceneName, "sceneItemId": itemID, "sceneItemIndex": max(0, len(rows)-1)}); err != nil {
 		return "", "", err
 	}
-	if h.Mode != "source" {
+	if h.Mode != "source" && h.Mode != "openhud" {
 		video, e := o.call("GetVideoSettings", nil)
 		if e != nil {
 			return "", "", e
@@ -249,7 +256,7 @@ func enforceSingleHUD(o *obs, root, input, previous string, itemID float64) erro
 		for _, raw := range rows {
 			m, _ := raw.(map[string]any)
 			name := stringField(m, "sourceName")
-			managed := name == "Project Replay Team HUD" || name == "Project Replay Custom HUD" || strings.HasPrefix(name, "Project Replay ZIP HUD ") || name == previous || name == input
+			managed := name == "Project Replay Astra HUD" || name == "OpenHUD Broadcast" || name == "Project Replay Team HUD" || name == "Project Replay Custom HUD" || strings.HasPrefix(name, "Project Replay ZIP HUD ") || name == previous || name == input
 			if managed {
 				enabled := input != "" && scene == root && name == input && number(m, "sceneItemId") == itemID
 				if _, err := o.call("SetSceneItemEnabled", map[string]any{"sceneName": scene, "sceneItemId": m["sceneItemId"], "sceneItemEnabled": enabled}); err != nil {

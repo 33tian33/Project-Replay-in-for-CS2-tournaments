@@ -12,8 +12,8 @@ import (
 
 const fullHUDCommand = "gameui_hide; hideconsole; demo_ui_mode 0; cl_drawhud 1; crosshair 1; cl_draw_only_deathnotices 0; cl_drawhud_force_radar 0; cl_drawhud_force_deathnotices 0; cl_drawhud_force_teamid_overhead 0; spec_show_xray 1"
 
-// Match CSStudio config/openhud_headless.json.
-const teamHUDCommand = "sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 0; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
+// Hide native overlays without cheat-protected cl_drawhud or server sv_cheats.
+const teamHUDCommand = "gameui_hide; hideconsole; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
 
 func (a *Service) recordingHUDCommandLocked() string {
 	if a.s.TeamHUD || a.s.HUDActiveSource != "" || a.hudHidden {
@@ -58,10 +58,11 @@ func hideGameUI(address string) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"cl_drawhud", "crosshair", "cl_draw_only_deathnotices"} {
-		if value, known := hudValue(reply, name); !known || value {
-			return fmt.Errorf("游戏未确认关闭 %s：%.800s", name, reply)
-		}
+	if value, known := hudValue(reply, "crosshair"); !known || value {
+		return fmt.Errorf("游戏未确认关闭准星：%.800s", reply)
+	}
+	if value, known := hudValue(reply, "cl_draw_only_deathnotices"); !known || !value {
+		return fmt.Errorf("游戏未确认启用原生 HUD 隐藏模式：%.800s", reply)
 	}
 	if value, known := hudValue(reply, "spec_show_xray"); !known || !value {
 		return fmt.Errorf("游戏未确认开启 X 光：%.800s", reply)
@@ -128,7 +129,7 @@ func (a *Service) setHUD(visible bool) error {
 	}
 	value, known := hudValue(reply, "cl_drawhud")
 	deathOnly, deathKnown := hudValue(reply, "cl_draw_only_deathnotices")
-	if !known || value != visible || visible && (!deathKnown || deathOnly) {
+	if !deathKnown || deathOnly == visible || visible && (!known || !value) {
 		return fmt.Errorf("游戏未确认 HUD 状态；cl_drawhud 可能受命令权限限制。请检查 NetCon / Demo 权限，或使用“安装战队 HUD 到 OBS”。反馈：%.800s", reply)
 	}
 	a.s.TeamHUD = false

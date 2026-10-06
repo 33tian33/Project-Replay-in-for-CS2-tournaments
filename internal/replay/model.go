@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "0.2.6"
+const Version = "0.2.7"
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 func id() string {

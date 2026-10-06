@@ -78,3 +78,22 @@ func TestDirectorGSIUsesAWithoutPairing(t *testing.T) {
 		t.Fatal("incorrect A GSI")
 	}
 }
+
+func TestInstalledGSIIncludesAstraComponents(t *testing.T) {
+	for _, role := range []string{"agent", "director"} {
+		a := testService(t, role)
+		path, err := a.installLocalGSI(t.TempDir(), "0.0.0.0:7788")
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"map_round_wins", "player_match_stats", "player_weapons", "player_position", "allplayers_weapons", "allplayers_position", "bomb", "allgrenades", "phase_countdowns"} {
+			if !strings.Contains(string(data), `"`+key+`" "1"`) {
+				t.Errorf("%s GSI missing %s", role, key)
+			}
+		}
+	}
+}

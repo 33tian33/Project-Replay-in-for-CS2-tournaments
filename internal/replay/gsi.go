@@ -283,6 +283,42 @@ func clutchOpponents(players map[string]any, steam string) int {
 	return 0
 }
 
+// Subscribe to every component consumed by the bundled Astra HUD, including
+// observer-only positions, inventories, bomb and grenade trajectories.
 func (a *Service) gsiConfig(side, base string) string {
-	return fmt.Sprintf("\"Project Replay %s\"\n{\n  \"uri\" \"%s/gsi/%s\"\n  \"timeout\" \"2.0\"\n  \"buffer\" \"0.05\"\n  \"throttle\" \"0.1\"\n  \"heartbeat\" \"1.0\"\n  \"data\" { \"provider\" \"1\" \"map\" \"1\" \"round\" \"1\" \"phase_countdowns\" \"1\" \"player_id\" \"1\" \"player_state\" \"1\" \"allplayers_id\" \"1\" \"allplayers_state\" \"1\" \"allplayers_match_stats\" \"1\" }\n}\n", side, base, side)
+	return fmt.Sprintf(`"Project Replay %s"
+{
+  "uri" "%s/gsi/%s"
+  "timeout" "2.0"
+  "buffer" "0.05"
+  "throttle" "0.1"
+  "heartbeat" "1.0"
+  "output"
+  {
+    "precision_time" "3"
+    "precision_position" "1"
+    "precision_vector" "3"
+  }
+  "data"
+  {
+    "provider" "1"
+    "map" "1"
+    "map_round_wins" "1"
+    "round" "1"
+    "phase_countdowns" "1"
+    "player_id" "1"
+    "player_state" "1"
+    "player_match_stats" "1"
+    "player_weapons" "1"
+    "player_position" "1"
+    "allplayers_id" "1"
+    "allplayers_state" "1"
+    "allplayers_match_stats" "1"
+    "allplayers_weapons" "1"
+    "allplayers_position" "1"
+    "bomb" "1"
+    "allgrenades" "1"
+  }
+}
+`, side, base, side)
 }

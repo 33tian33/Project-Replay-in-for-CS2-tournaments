@@ -59,7 +59,7 @@ func TestHUDCommands(t *testing.T) {
 					visible = strings.Contains(line, "cl_drawhud 1")
 				}
 				if line == "cl_drawhud; cl_draw_only_deathnotices" {
-					fmt.Fprintf(conn, "cl_drawhud = %t\ncl_draw_only_deathnotices = false\n", visible)
+					fmt.Fprintf(conn, "cl_drawhud = true\ncl_draw_only_deathnotices = %t\n", !visible)
 				}
 				if strings.HasPrefix(line, "echo ") {
 					fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))
@@ -142,7 +142,7 @@ func TestTeamHUDCommandReadback(t *testing.T) {
 						commands <- line
 					}
 					if strings.HasPrefix(line, "cl_drawhud;") {
-						fmt.Fprintf(conn, "cl_drawhud = %t\ncrosshair = false\ncl_draw_only_deathnotices = false\ncl_drawhud_force_deathnotices = -1\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", !applied)
+						fmt.Fprintf(conn, "Ignoring CSVCMsg_UserCommands_t with no command datacl_drawhud = true\ncrosshair = false\ncl_draw_only_deathnotices = %t\ncl_drawhud_force_deathnotices = -1\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", applied)
 					}
 					if strings.HasPrefix(line, "echo ") {
 						fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))
@@ -175,5 +175,38 @@ func TestRecordingUsesTeamHUD(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(a.dir, "state.json"))
 	if err != nil || !strings.Contains(string(b), `"team_hud": true`) {
 		t.Fatal("HUD preference not persisted", err, string(b))
+	}
+}
+
+func TestTeamHUDDoesNotRequireCheats(t *testing.T) {
+	for _, forbidden := range []string{"sv_cheats", "cl_drawhud 0"} {
+		if strings.Contains(teamHUDCommand, forbidden) {
+			t.Fatalf("HUD still requires cheats: %s", teamHUDCommand)
+		}
+	}
+	if !strings.Contains(teamHUDCommand, "cl_draw_only_deathnotices 1") {
+		t.Fatal("missing HUD suppression")
+	}
+}
+
+func TestConsoleMarkerAfterUnterminatedGameLog(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	go func() {
+		defer server.Close()
+		scanner := bufio.NewScanner(server)
+		scanner.Scan()
+		scanner.Scan()
+		echo := scanner.Text()
+		fmt.Fprintln(server, echo) // An echoed command is not completion.
+		fmt.Fprint(server, "cl_draw_only_deathnotices = true\nIgnoring CSVCMsg_UserCommands_t with no command data"+strings.TrimPrefix(echo, "echo ")+"\r\n")
+	}()
+	n := &consoleSession{client, bufio.NewReader(client)}
+	reply, err := n.queryWithTimeout("cl_draw_only_deathnotices", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, known := hudValue(reply, "cl_draw_only_deathnotices"); !known || !value {
+		t.Fatalf("lost response: %q", reply)
 	}
 }

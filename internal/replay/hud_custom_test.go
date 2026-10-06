@@ -123,13 +123,18 @@ func TestCustomHUDSwitching(t *testing.T) {
 		}
 	}
 	apply(HUDSettings{})
+	mu.Lock()
+	if !enabled[ids["Project Replay Astra HUD"]] || enabled[1] {
+		t.Error("default Astra did not disable old OpenHUD")
+	}
+	mu.Unlock()
 	apply(HUDSettings{Mode: "url", URL: "http://127.0.0.1:1350/recorder", Width: 1280, Height: 720})
 	mu.Lock()
-	if enabled[ids["Project Replay Team HUD"]] || settings["Project Replay Custom HUD"]["url"] != "http://127.0.0.1:1350/recorder" || number(transforms[ids["Project Replay Custom HUD"]], "scaleX") != 1.5 {
+	if enabled[ids["Project Replay Astra HUD"]] || settings["Project Replay Custom HUD"]["url"] != "http://127.0.0.1:1350/recorder" || number(transforms[ids["Project Replay Custom HUD"]], "scaleX") != 1.5 {
 		t.Error("custom browser install or builtin hiding failed")
 	}
 	mu.Unlock()
-	apply(HUDSettings{Mode: "source", Source: "OpenHUD Broadcast", KeepNative: true})
+	apply(HUDSettings{Mode: "openhud", KeepNative: true})
 	mu.Lock()
 	if !enabled[1] || settings["OpenHUD Broadcast"] != nil || transforms[1] != nil || enabled[ids["Project Replay Custom HUD"]] {
 		t.Error("existing source mutated or prior overlay still visible")

@@ -208,7 +208,10 @@ func (n *consoleSession) queryWithTimeout(command string, timeout time.Duration)
 		if e != nil {
 			return "", e
 		}
-		if strings.TrimSpace(line) == marker {
+		// Some CS2 log messages omit their trailing newline and attach to echo.
+		trimmed := strings.TrimSpace(line)
+		if strings.HasSuffix(trimmed, marker) && !strings.HasSuffix(trimmed, "echo "+marker) {
+			b.WriteString(strings.TrimSuffix(trimmed, marker))
 			return b.String(), nil
 		}
 		b.WriteString(line)

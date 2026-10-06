@@ -83,7 +83,7 @@ func TestHUDInstallationInOBSIsIdempotent(t *testing.T) {
 			case "GetInputList":
 				data["inputs"] = []any{}
 				if created > 0 {
-					data["inputs"] = []any{map[string]any{"inputName": "Project Replay Team HUD"}}
+					data["inputs"] = []any{map[string]any{"inputName": "Project Replay Astra HUD"}}
 				}
 			case "CreateInput":
 				created++
@@ -116,7 +116,7 @@ func TestHUDInstallationInOBSIsIdempotent(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if created != 1 || settings["url"] != "http://127.0.0.1:7788/hud.html" || number(transform, "scaleX") != 1280.0/1920 {
+	if created != 1 || settings["url"] != "http://127.0.0.1:7788/astra/index.html" || number(transform, "scaleX") != 1280.0/1920 {
 		t.Fatal(created, settings, transform)
 	}
 }

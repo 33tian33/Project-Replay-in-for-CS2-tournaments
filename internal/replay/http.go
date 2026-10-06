@@ -50,6 +50,7 @@ func (a *Service) Handler() http.Handler {
 	a.hudRoutes(api)
 	a.hudSettingsRoutes(api)
 	a.hudZipRoutes(mux, api)
+	a.astraRoutes(mux)
 	a.obsLaunchRoutes(api)
 	a.timingRoutes(api)
 	api.HandleFunc("POST /api/hud", func(w http.ResponseWriter, r *http.Request) {
@@ -386,7 +387,7 @@ func (a *Service) Handler() http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-		hudRead := (r.Method == "GET" || r.Method == "HEAD") && (strings.HasPrefix(r.URL.Path, "/hud-packages/") || r.URL.Path == "/hud-data" || r.URL.Path == "/hud-api/state")
+		hudRead := (r.Method == "GET" || r.Method == "HEAD") && (strings.HasPrefix(r.URL.Path, "/astra/") || strings.HasPrefix(r.URL.Path, "/hud-packages/") || r.URL.Path == "/hud-data" || r.URL.Path == "/hud-api/state")
 		if origin := r.Header.Get("Origin"); origin != "" && !hudRead {
 			u, e := url.Parse(origin)
 			scheme := "http"
