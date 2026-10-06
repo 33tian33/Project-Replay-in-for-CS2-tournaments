@@ -1,0 +1,13 @@
+{
+  "name": "Astra Default HUD",
+  "version": "1.0.0",
+  "author": "Hyun-05",
+  "legacy": false,
+  "radar": false,
+  "killfeed": false,
+  "game": "cs2",
+  "boltobserv": {
+    "css": false,
+    "maps": false
+  }
+}

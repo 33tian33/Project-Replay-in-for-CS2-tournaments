@@ -1,0 +1,3023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="/astra/replay-bridge.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astra Default HUD</title>
+<style>
+:root {
+  /* Astra injectable colors (main app writes these on :root) */
+  --astra-primary: #00F0FF;
+  --astra-secondary: #FF9100;
+  --astra-accent: #ffffff;
+  --astra-text: #ffffff;
+  /* Team colors follow the app's two-side colors */
+  --ct: var(--astra-primary);
+  --ct-deep: color-mix(in srgb, var(--astra-primary), black 45%);
+  --t: var(--astra-secondary);
+  --t-deep: color-mix(in srgb, var(--astra-secondary), black 45%);
+  --bg-a: 1; /* black-panel opacity multiplier, set by the app's Background Opacity slider */
+  --bg-panel: rgba(4, 6, 10, calc(0.92 * var(--bg-a)));
+  --bg-panel-soft: rgba(4, 6, 10, calc(0.86 * var(--bg-a)));
+  --border: rgba(255, 255, 255, 0.09);
+  --dead: 0.32;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('assets/fonts/rajdhani-500.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('assets/fonts/rajdhani-600.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Rajdhani';
+  src: url('assets/fonts/rajdhani-700.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+html, body {
+  width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Rajdhani", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  color: var(--astra-text);
+  -webkit-font-smoothing: antialiased;
+}
+#hud {
+  width: 1920px; height: 1080px;
+  position: relative;
+  transform-origin: top left;
+  font-family: "Rajdhani", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+#hud * { font-family: inherit; }
+.ico { width: 16px; height: 16px; fill: currentColor; vertical-align: middle; flex: none; }
+
+/* ============ TOP BAR ============ */
+#topbar {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: stretch;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 12px rgba(0,240,255,0.06);
+  backdrop-filter: blur(6px);
+}
+.tside { display: flex; align-items: center; gap: 10px; padding: 8px 14px; min-width: 250px; }
+.tside.ct { border-left: 4px solid var(--ct); }
+.tside.t { border-right: 4px solid var(--t); flex-direction: row-reverse; text-align: right; }
+.tlogo {
+  width: 44px; height: 44px; border-radius: 6px;
+  background: rgba(255,255,255,0.18);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; flex: none;
+}
+.tlogo img { width: 100%; height: 100%; object-fit: contain; }
+.tlogo .tinitial { font-size: 20px; font-weight: 800; letter-spacing: 1px; }
+.tside.ct .tinitial { color: var(--ct); }
+.tside.t .tinitial { color: var(--t); }
+.tmeta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tname { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.tside.t .tname { margin-left: auto; }
+.tseries { display: flex; gap: 4px; margin-top: 1px; min-height: 4px; }
+.tside.t .tseries { justify-content: flex-end; }
+.tseries span { width: 16px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.18); }
+.tside.ct .tseries span.won { background: var(--ct); }
+.tside.t .tseries span.won { background: var(--t); }
+.tscore { font-size: 38px; font-weight: 800; line-height: 1; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.tside.ct .tscore { color: var(--ct); }
+.tside.t .tscore { color: var(--t); }
+
+#tcenter {
+  position: relative; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 4px 22px; width: 232px; min-width: 232px;
+  background: rgba(0,0,0,calc(0.58 * var(--bg-a)));
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+#timerrow { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+/* event logo now sits inline next to the match name */
+.evlogo { width: auto; height: 14px; max-width: 60px; object-fit: contain; flex: none; }
+.evlogo-to { width: 240px; height: 88px; max-width: none; object-fit: contain; margin-bottom: 10px; }
+#timerrow .ico { width: 20px; height: 20px; flex: none; }
+#timer { width: 88px; flex: none; text-align: center; font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+#timerrow.phase-bomb { color: #ff4646; }
+/* planted: the countdown text is replaced by a blinking red C4 icon */
+.c4blink { display: inline-flex; color: #ff4646; animation: pulse-red 0.8s ease-in-out infinite; }
+#timerrow .c4blink .ico { width: 32px; height: 32px; }
+/* technical pause: countdown digits replaced by a soft-pulsing amber pause icon */
+.techpause { display: inline-flex; color: #ffd94a; animation: pulse-red 1.6s ease-in-out infinite; }
+#timerrow .techpause .ico { width: 32px; height: 32px; }
+#timerrow.phase-defuse { color: var(--astra-primary); }
+#timerrow.phase-freezetime { color: #dfe9f5; }
+#timerrow.phase-timeout { color: #ffd94a; }
+#timerrow.phase-over { color: var(--astra-accent); }
+@keyframes pulse-red { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+#roundlbl { font-size: 11px; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,0.72); margin-top: 1px; }
+#matchlbl {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--astra-primary); opacity: 0.9; margin-top: 2px;
+  max-width: 210px; white-space: nowrap; overflow: hidden;
+}
+#matchlbl #matchname { overflow: hidden; text-overflow: ellipsis; }
+#matchlbl.empty { display: none; }
+
+/* ============ MAPS STRIP ============ */
+#mapstrip {
+  position: absolute; top: 18px; left: 18px;
+  display: flex; gap: 6px; align-items: center;
+}
+.mapchip {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
+  padding: 3px 10px; border-radius: 4px;
+  background: var(--bg-panel-soft); border: 1px solid var(--border);
+  color: #fff; text-transform: uppercase;
+  display: flex; align-items: center; gap: 5px;
+}
+.mapchip.current { border-color: var(--astra-primary); color: #fff; box-shadow: 0 0 8px rgba(0,240,255,0.25); }
+.mapchip .pickby { font-size: 9px; color: rgba(255,255,255,0.85); }
+.mapchip .wteam {
+  width: 15px; height: 15px; border-radius: 3px; overflow: hidden; flex: none;
+  background: rgba(255,255,255,0.18);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 8px; font-weight: 800; color: #fff; letter-spacing: 0;
+}
+.mapchip .wteam img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ============ PLAYER PANELS (BLAST-style: the card itself is the HP bar) ============ */
+.players {
+  position: absolute; bottom: 24px;
+  display: flex; flex-direction: column; gap: 8px; width: 336px;
+}
+#players-left { left: 18px; }
+#players-right { right: 18px; }
+/* clutch spotlight (side layout): last-alive player's card, same look as the observed
+   card but smaller; only the clutching team's column hides (plus the observed card).
+   All show/hide is animated (fade + slide) — no hard display switches */
+.players, #obsplayer { transition: opacity 0.25s ease, visibility 0s; }
+.clutch {
+  position: absolute; bottom: 110px; width: 380px; height: 58px; z-index: 5;
+  opacity: 0; visibility: hidden; transform: translateY(14px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+#clutch-ct { right: calc(50% + 30px); }
+#clutch-t { left: calc(50% + 30px); }
+/* square-card (bottom) layout: team rows fade out during clutch, so the card can
+   sit low in the freed space instead of floating above the rows */
+body.layout-bottom .clutch { bottom: 100px; }
+body.clutch-ct-on:not(.editing) #clutch-ct,
+body.clutch-t-on:not(.editing) #clutch-t {
+  opacity: 1; visibility: visible; transform: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s;
+}
+body.clutch-ct-on:not(.editing) #players-left,
+body.clutch-t-on:not(.editing) #players-right,
+body.clutch-ct-on:not(.editing) #obsplayer,
+body.clutch-t-on:not(.editing) #obsplayer {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+.clutch .op-hp { font-size: 28px; width: 48px; }
+.clutch .opavatar { width: 98px; height: 132px; }
+.prow {
+  position: relative; height: 72px; overflow: hidden;
+  background: rgba(4, 6, 10, calc(0.9 * var(--bg-a)));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.3s;
+}
+/* signature color arc on the outer edge; brightens when this player is observed */
+.prow::before {
+  content: ''; position: absolute; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; z-index: 1;
+}
+.players.ct .prow::before { left: 0; background: var(--ct-deep); }
+.players.t .prow::before { right: 0; background: var(--t-deep); }
+.players.ct .prow.observed::before { background: var(--ct); box-shadow: 0 0 8px var(--ct); }
+.players.t .prow.observed::before { background: var(--t); box-shadow: 0 0 8px var(--t); }
+/* hp fill: team-color layer with wave dot-matrix texture, width = hp% (drains from outer edge) */
+.pfill { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; transition: width 0.25s ease; overflow: hidden; }
+.pfill::after {
+  content: ''; position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.14) 1px, transparent 1.7px);
+  background-size: 7px 7px;
+  -webkit-mask-image: repeating-linear-gradient(155deg, #000 0 24%, rgba(0,0,0,0.05) 42%, #000 58%, rgba(0,0,0,0.05) 76%, #000 94%);
+  mask-image: repeating-linear-gradient(155deg, #000 0 24%, rgba(0,0,0,0.05) 42%, #000 58%, rgba(0,0,0,0.05) 76%, #000 94%);
+}
+.players.t .pfill::after {
+  -webkit-mask-image: repeating-linear-gradient(25deg, #000 0 24%, rgba(0,0,0,0.05) 42%, #000 58%, rgba(0,0,0,0.05) 76%, #000 94%);
+  mask-image: repeating-linear-gradient(25deg, #000 0 24%, rgba(0,0,0,0.05) 42%, #000 58%, rgba(0,0,0,0.05) 76%, #000 94%);
+}
+.players.ct .pfill, #obsplayer.ct .pfill { background: linear-gradient(180deg, color-mix(in srgb, var(--ct), #000 52%), color-mix(in srgb, var(--ct), #000 70%)); }
+.players.t .pfill { left: auto; right: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--t), #000 48%), color-mix(in srgb, var(--t), #000 66%)); }
+/* observed card: hp fill always left-anchored regardless of side */
+#obsplayer.t .pfill { background: linear-gradient(180deg, color-mix(in srgb, var(--t), #000 48%), color-mix(in srgb, var(--t), #000 66%)); }
+.prow.low .pfill, #obsplayer.low .pfill { background: linear-gradient(180deg, #b03030, #7e1f1f) !important; }
+/* slanted slot tab on the outer top corner */
+.pslot {
+  position: absolute; top: 0; z-index: 3;
+  min-width: 28px; height: 17px; padding: 0 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #06121a; font-variant-numeric: tabular-nums;
+}
+.players.ct .pslot { left: 0; background: var(--ct); clip-path: polygon(0 0, 100% 0, 76% 100%, 0 100%); padding-right: 13px; }
+.players.t .pslot { right: 0; background: var(--t); clip-path: polygon(24% 0, 100% 0, 100% 100%, 0 100%); padding-left: 13px; }
+/* round-kills badge: angled neon chip — amber gold reads on both CT blue and T orange */
+.prk {
+  position: absolute; bottom: 4px; z-index: 3;
+  min-width: 24px; height: 18px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #1f1400; letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #ffd75e, #ff9f2e);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  filter: drop-shadow(0 0 6px rgba(255,180,60,0.55));
+}
+/* side layout: badge hangs OUTSIDE the card's top edge on the screen-center side —
+   CT: left edge flush with the card's right edge; T mirrored (right edge of the
+   column would clip against the 18px screen margin). prow becomes overflow:visible */
+body:not(.layout-bottom) .players.ct .prk { left: 100%; right: auto; top: 6px; bottom: auto; margin-left: 4px; }
+body:not(.layout-bottom) .players.t .prk { right: 100%; left: auto; top: 6px; bottom: auto; margin-right: 4px; }
+body:not(.layout-bottom) .players .prow { overflow: visible; }
+body:not(.layout-bottom) .players .prow .pfill { border-radius: 8px; }
+.prk:empty { display: none; }
+/* pop animation each time the kill count goes up */
+@keyframes rk-pop {
+  0% { transform: scale(0.4); filter: drop-shadow(0 0 12px rgba(255,190,70,0.95)); }
+  55% { transform: scale(1.28); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 6px rgba(255,180,60,0.55)); }
+}
+.prk.rk-pop { animation: rk-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1); }
+#obsplayer .prk { position: absolute; left: 6px; right: auto; top: auto; bottom: 100%; }
+/* content row (T side mirrors via row-reverse) */
+.pbody { position: relative; z-index: 2; display: flex; align-items: center; height: 100%; padding: 0 10px; gap: 8px; }
+.players.ct .pbody { padding-left: 28px; }
+.players.t .pbody { flex-direction: row-reverse; padding-right: 28px; }
+/* zone 1: big hp number + armor/kit/c4 icons under it */
+.php { width: 58px; flex: none; text-align: center; }
+.php .hpnum { font-size: 34px; font-weight: 800; line-height: 1.05; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); font-variant-numeric: tabular-nums; }
+.php .hpnum .ico { width: 26px; height: 26px; color: #ff6b6b; }
+.php .parmor { display: flex; justify-content: center; gap: 3px; margin-top: 3px; min-height: 19px; color: rgba(255,255,255,0.85); }
+.php .parmor .ico { width: 19px; height: 19px; }
+/* fixed armor-row slot (armor / defuse kit / C4), always occupies its spot */
+.php .parmor .aslot { width: 19px; height: 19px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+/* 固定两槽排布：CT 永不渲染 C4 槽、T 永不渲染钳子槽；
+   剩余 [甲][钳] / [甲][C4] 两槽固定占位，图标位置不随装备有无滑动 */
+.players.ct .parmor .s-c4 { display: none; }
+.players.t .parmor .s-kit { display: none; }
+/* zone 2: K/D+$ row over grenades (center) */
+.pmid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; }
+.pweap { display: flex; align-items: center; justify-content: center; min-height: 26px; }
+.pweap .wic { height: 26px; max-width: 96px; }
+.pnades { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 19px; }
+.pnades .wic { height: 19px; }
+/* side player cards: slightly tighter gap so all 4 fixed slots fit the middle zone */
+.players .pnades { gap: 4px; }
+/* ×2 badge for a second flashbang; wwrap doubles as the FIXED 19×19 box for every
+   owned grenade, so buying/throwing a nade never changes the row's width or spacing */
+.pnades .wwrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; flex: none; }
+.pnades .wnum {
+  position: absolute; top: -5px; right: -6px; z-index: 1;
+  font-size: 9px; font-weight: 800; line-height: 1.2; color: #fff;
+  background: rgba(0,0,0,calc(0.6 * var(--bg-a))); border-radius: 6px; padding: 0 3px;
+}
+/* empty grenade slot placeholder: a small dim dot — keeps every equipment position
+   fixed and spacing even, without looking like an actual grenade icon */
+.pnades .wslot { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; flex: none; }
+.pnades .wslot::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.22); }
+.pweap .wic.w-on, .pnades .wic.w-on { color: #fff; }
+.pweap .wic.w-off, .pnades .wic.w-off { color: rgba(255,255,255,0.45); }
+.ico.lskull { fill: none; stroke: currentColor; }
+/* zone 3: name + K/D + money (aligned to outer edge) */
+.pinfo { width: 118px; flex: none; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.players.ct .pinfo { text-align: right; align-items: flex-end; }
+.players.t .pinfo { text-align: left; align-items: flex-start; }
+.pstat { display: flex; align-items: center; gap: 8px; }
+
+/* side player cards: hp block on the outer side; top row = name + K/D;
+   bottom row = weapon + grenades (both bigger); avatar in the inner bottom corner */
+.players .pbody { display: block; padding: 0; }
+.players .php { position: absolute; top: 50%; transform: translateY(-50%); }
+.players.ct .php { left: 28px; }
+.players.t .php { right: 28px; }
+/* ==== side-layout rearrange ====
+   armor/kit/C4: vertical stack right under the slot-number tab (the old round-kills
+   spot); money takes the armor row's old place under the hp digits; the top row is
+   now name + K/D only, so long ids get the money's former width too */
+body:not(.layout-bottom) .players .php { top: 7px; transform: none; }
+/* keep the money from jumping up when the player dies (hp digits blank out) */
+body:not(.layout-bottom) .players .php .hpnum { min-height: 36px; }
+body:not(.layout-bottom) .players .parmor { position: absolute; top: 21px; display: flex; flex-direction: column; gap: 3px; margin-top: 0; min-height: 0; }
+body:not(.layout-bottom) .players.ct .parmor { left: 7px; }
+body:not(.layout-bottom) .players.t .parmor { right: 7px; }
+body:not(.layout-bottom) .players .pmoney { margin-top: 1px; }
+.players .pinfo { position: absolute; top: 9px; width: auto; flex-direction: row; align-items: center; gap: 5px; z-index: 3; }
+/* name zone extends over the avatar's top edge (name layer sits above it) — CJK ids
+   at 14px still get ~6 glyphs before ellipsis, latin ~9; shorter ids never reach it */
+.players.ct .pinfo { left: 86px; right: 72px; text-align: left; align-items: center; }
+.players.t .pinfo { right: 86px; left: 72px; flex-direction: row-reverse; text-align: right; align-items: center; }
+/* name stretches the row again: K/D rides the row's inner end, which now lands flush
+   against the avatar's edge (CT KD right edge ↔ avatar left edge; T mirrored) */
+.players .pname { flex: 1; min-width: 0; }
+/* K/D sits close to the money: tight row gap, tight K-D spacing, no trailing margin */
+.players .pstat { flex: none; gap: 3px; }
+.players .pstat .pkd { gap: 3px; }
+.players .pstat .pkd span { margin-right: 2px; }
+.players .pstat .pkd span:last-child { margin-right: 0; }
+.players .pstat .pkd { font-size: 14px; }
+.players .pstat .pmoney { font-size: 14px; }
+.players .pstat .pkd .ico { width: 14px; height: 14px; }
+/* equipment row mirrored: grenades on the outer side, weapon toward screen center */
+.players .pmid { position: absolute; bottom: 7px; flex: none; flex-direction: row; align-items: center; justify-content: center; gap: 6px; }
+.players.ct .pmid { left: 86px; right: 74px; flex-direction: row-reverse; }
+.players.t .pmid { right: 86px; left: 74px; }
+.players .pmid .pweap .wic { height: 26px; max-width: 88px; }
+.players .pmid .pnades .wic { height: 19px; }
+.players .pmid .pnades .wslot { width: 19px; height: 19px; }
+.pname { font-size: 14px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px rgba(0,0,0,0.85); }
+.pkd { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.65); font-variant-numeric: tabular-nums; }
+.pkd .ico { width: 13px; height: 13px; opacity: 0.7; }
+.pkd span { color: #fff; margin-right: 5px; }
+.pmoney { font-size: 14px; font-weight: 800; color: #42e35f; font-variant-numeric: tabular-nums; }
+/* player avatar (from the app's Players page, matched by steamid):
+   absolute overlay in the card's inner BOTTOM corner, so the name row above
+   gets the zone's full width; weapon row keeps a margin so it won't slide under it */
+.pavatar {
+  position: absolute; bottom: 4px; z-index: 2;
+  width: 64px; height: 64px; object-fit: contain;
+  background: rgba(255,255,255,0.06); border-radius: 6px;
+  transition: filter 0.35s ease;
+}
+.players.ct .pavatar { right: 6px; }
+.players.t .pavatar { left: 6px; }
+/* live camera iframe (VDO.Ninja) overlaid on the avatar slot — same class keeps layout */
+iframe.vcam { border: 0; background: transparent; pointer-events: none; z-index: 6; }
+/* team-color line-art overlay, only for the DEFAULT avatar: a CSS mask paints the
+   squad color (--ct/--t) through the white-line PNG; custom player photos never
+   get this layer. Copies the img's class so position/size stay in lockstep. */
+.avatar-lines {
+  background: var(--ct); z-index: 3; pointer-events: none;
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-position: center bottom; mask-position: center bottom;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+}
+/* camera feeds are landscape: give the OB / clutch card cam a bigger 4:3-ish frame
+   than the portrait avatar box */
+iframe.opavatar.vcam { width: 180px; height: 135px; }
+/* states */
+.prow.observed { border-color: #fff; box-shadow: 0 0 14px rgba(255,255,255,0.35); }
+/* avatar fades to black & white when its player dies (a live camera iframe stays as-is) */
+.prow.dead .pavatar { filter: grayscale(1); }
+/* death flash: two red pulses, outer glow + inset tint so the whole card reads */
+@keyframes died-flash {
+  0%   { border-color: rgba(255,55,55,1);    box-shadow: 0 0 32px rgba(255,55,55,0.95), inset 0 0 30px rgba(255,45,45,0.55); }
+  28%  { border-color: rgba(255,55,55,0.3);  box-shadow: 0 0 8px rgba(255,55,55,0.2),  inset 0 0 10px rgba(255,45,45,0.1); }
+  55%  { border-color: rgba(255,55,55,0.95); box-shadow: 0 0 26px rgba(255,55,55,0.85), inset 0 0 24px rgba(255,45,45,0.42); }
+  100% { border-color: var(--border); box-shadow: none; }
+}
+.prow.just-died { animation: died-flash 1.1s ease-out; }
+.prow.dead .pfill { display: none; }
+.prow.dead .pbody { opacity: 0.45; }
+.prow.dead .pname { color: rgba(255,255,255,0.65); }
+.hpbar {
+  position: relative; height: 19px; margin-top: 4px;
+  background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden;
+}
+.hpfill { height: 100%; border-radius: 4px; transition: width 0.25s ease; }
+.players.ct .hpfill { background: var(--ct); }
+.players.t .hpfill { background: var(--t); }
+.hpfill.low { background: #e04040 !important; }
+#obsplayer .hpnum {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  font-variant-numeric: tabular-nums;
+}
+.hpbar .ico.skull-ic { position: absolute; left: 5px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: #ff6b6b; }
+.wic { height: 16px; width: auto; fill: currentColor; }
+/* obsplayer stats row still uses these */
+.pstats { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.65); font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+.pstats b { color: #fff; }
+
+/* ============ TACTICAL TIMEOUT ============ */
+#timeout {
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+  width: 1660px;
+  background-color: rgba(4, 6, 10, calc(0.94 * var(--bg-a)));
+  background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1.6px);
+  background-size: 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  opacity: 0; visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+#timeout.show {
+  opacity: 1; visibility: visible;
+  transition: opacity 0.3s ease, visibility 0s;
+}
+#to-title {
+  text-align: center; padding: 8px 0 6px;
+  font-size: 17px; font-weight: 800; letter-spacing: 4px;
+  background: rgba(0,0,0,calc(0.4 * var(--bg-a)));
+  border-bottom: 1px solid var(--border);
+}
+#to-title.ct { color: var(--ct); }
+#to-title.t { color: var(--t); }
+#to-title.tech { color: #ffd94a; }
+#to-body { display: flex; align-items: stretch; position: relative; }
+.to-team { flex: 1; padding: 10px 12px 12px; min-width: 0; position: relative; }
+.to-team.t { text-align: right; }
+/* signature color arc on the outer edge, same as player cards */
+.to-team::before { content: ''; position: absolute; top: 8px; bottom: 8px; width: 4px; border-radius: 4px; }
+.to-team.ct::before { left: 0; background: var(--ct-deep); }
+.to-team.t::before { right: 0; background: var(--t-deep); }
+.to-teamhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.to-team.t .to-teamhead { flex-direction: row-reverse; }
+.to-teamname { font-size: 18px; font-weight: 800; letter-spacing: 1px; }
+.to-team.ct .to-teamname { color: var(--ct); }
+.to-team.t .to-teamname { color: var(--t); }
+.to-logo { width: 32px; height: 32px; border-radius: 4px; background: rgba(255,255,255,0.18); object-fit: contain; }
+/* header stats: timeouts / loss bonus / equipment, inline on the same row as the team name */
+/* header stats spread across the full team width (EWC-style), T side mirrored */
+.to-hstats { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 0 10px; }
+.to-team.t .to-hstats { flex-direction: row-reverse; }
+.to-hstat { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.75); white-space: nowrap; }
+.to-team.t .to-hstat { align-items: flex-end; }
+.to-hstat .label { letter-spacing: 1px; text-transform: uppercase; font-size: 16px; color: rgba(255,255,255,0.45); }
+.to-hstat b { color: #fff; font-variant-numeric: tabular-nums; font-size: 23px; }
+.to-pips { display: inline-flex; gap: 4px; vertical-align: middle; }
+.to-pip { width: 34px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.15); }
+.to-team.ct .to-pip.on { background: var(--ct); }
+.to-team.t .to-pip.on { background: var(--t); }
+.to-prow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 10px; border-radius: 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: 5px;
+}
+.to-team.t .to-prow { flex-direction: row-reverse; }
+/* true mirror symmetry: T side also reverses the inner order of equipment groups */
+.to-team.t .to-picons, .to-team.t .to-pnades, .to-team.t .to-pweaps { flex-direction: row-reverse; }
+.to-prow.dead { opacity: 0.35; }
+.to-pname { font-size: 19px; font-weight: 800; width: 126px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+.to-pkd { display: flex; align-items: center; gap: 4px; font-size: 19px; font-weight: 700; color: rgba(255,255,255,0.65); font-variant-numeric: tabular-nums; width: 92px; flex: none; }
+.to-pkd .ico { width: 20px; height: 20px; opacity: 0.7; }
+.to-pkd span { color: #fff; margin-right: 4px; }
+.to-pkd .ico.lskull { fill: none; stroke: currentColor; }
+/* fixed equipment slots: every item keeps its own position regardless of what the player carries */
+.to-picons { display: flex; gap: 3px; color: rgba(255,255,255,0.75); align-items: center; flex: none; }
+.to-ic-slot { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex: none; }
+.to-ic-slot .ico { width: 24px; height: 24px; }
+.to-pnades { display: flex; gap: 4px; align-items: center; flex: none; }
+.to-pnade-slot { width: 22px; height: 27px; display: flex; align-items: center; justify-content: center; flex: none; color: rgba(255,255,255,0.75); }
+.to-pnade-slot .wic { height: 23px; }
+.to-pweaps { display: flex; gap: 6px; align-items: center; flex: 1; }
+.to-team.t .to-pweaps { justify-content: flex-start; } /* row-reverse: flex-start hugs the nades side */
+.to-gun-slot { display: flex; align-items: center; justify-content: center; height: 32px; flex: none; color: rgba(255,255,255,0.85); }
+.to-gun-slot.primary { width: 90px; }
+.to-gun-slot.pistol { width: 42px; }
+.to-gun-slot .wic { height: 30px; }
+.to-pmoney { font-size: 23px; font-weight: 800; color: #42e35f; font-variant-numeric: tabular-nums; width: 96px; flex: none; text-align: right; }
+.to-center {
+  width: 240px; flex: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(0,0,0,calc(0.35 * var(--bg-a)));
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  padding: 10px;
+}
+.to-score { font-size: 42px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.to-score .ct { color: var(--ct); }
+.to-score .t { color: var(--t); }
+.to-vs { font-size: 11px; letter-spacing: 3px; color: rgba(255,255,255,0.4); margin-top: 4px; }
+
+/* ============ BOMB BAR ============
+   slim red strip right under the topbar: bomb explosion countdown only.
+   the fill is center-anchored so both ends shrink toward the middle */
+#bombbar {
+  position: absolute; top: 112px; left: 50%; transform: translateX(-50%);
+  width: 440px; height: 5px;
+  background: rgba(255,255,255,0.08); border-radius: 3px;
+  display: none; overflow: hidden;
+}
+#bombbar.show { display: block; }
+#bombfill {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  height: 100%; background: #ff4646; border-radius: 3px;
+  box-shadow: 0 0 10px rgba(255,70,70,0.55);
+  transition: width 0.1s linear;
+}
+
+/* ============ PLANT / DEFUSE ACTOR CHIP ============
+   who is planting / defusing — sits below the bomb bar slot, animated show/hide */
+#actor {
+  position: absolute; top: 148px; left: 50%; z-index: 6;
+  transform: translate(-50%, -6px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px; border-radius: 8px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  font-size: 14px; font-weight: 800; letter-spacing: 1.5px; color: #fff;
+  opacity: 0; visibility: hidden; overflow: hidden;
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+#actor.show {
+  opacity: 1; visibility: visible; transform: translate(-50%, 0);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s;
+}
+#actor .ico { width: 17px; height: 17px; }
+#actor-name { color: #fff; text-transform: uppercase; }
+#actor-verb { font-size: 12px; color: rgba(255,255,255,0.75); }
+#actor.plant { border-color: color-mix(in srgb, var(--t), transparent 45%); box-shadow: 0 0 18px color-mix(in srgb, var(--t), transparent 72%); }
+#actor.plant #actor-ic { color: var(--t); }
+#actor.defuse { border-color: color-mix(in srgb, var(--ct), transparent 45%); box-shadow: 0 0 18px color-mix(in srgb, var(--ct), transparent 72%); }
+#actor.defuse #actor-ic { color: var(--ct); }
+#actor-kit { font-size: 10px; letter-spacing: 1px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--ct), transparent 75%); color: var(--ct); }
+#actor-kit:empty { display: none; }
+/* mini progress bar along the chip's bottom edge: plant 3.2s / defuse 5s(kit)|10s */
+#actor-track { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.08); }
+#actor-fill { height: 100%; width: 0; background: var(--t); transition: width 0.1s linear; }
+#actor.defuse #actor-fill { background: var(--ct); }
+
+/* ============ ROUND RESULT BANNER ============ */
+#roundbanner {
+  position: absolute; top: 190px; left: 50%; transform: translateX(-50%);
+  padding: 12px 48px; border-radius: 8px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  font-size: 26px; font-weight: 800; letter-spacing: 4px; text-align: center;
+  display: none;
+}
+#roundbanner.show { display: block; }
+#roundbanner.ct { color: var(--ct); border-color: var(--ct); box-shadow: 0 0 28px color-mix(in srgb, var(--ct), transparent 70%); }
+#roundbanner.t { color: var(--t); border-color: var(--t); box-shadow: 0 0 28px color-mix(in srgb, var(--t), transparent 70%); }
+
+/* ============ WAITING ============ */
+#waiting {
+  position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 15px; letter-spacing: 4px; font-weight: 700; color: rgba(255,255,255,0.4);
+  display: flex; align-items: center; gap: 10px;
+}
+#waiting .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--astra-primary); animation: pulse-red 1.4s infinite; }
+#waiting.hidden { display: none; }
+
+/* ============ RADAR ============ */
+#radar {
+  position: absolute; left: 18px; top: 100px;
+  width: 340px; height: 340px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  display: none;
+}
+#radar.show { display: block; }
+#radar-inner {
+  width: 1024px; height: 1024px;
+  transform: scale(0.33203125); /* 340 / 1024, JS overrides for clutch zoom */
+  transform-origin: top left;
+  position: relative;
+  transition: transform 0.3s ease; /* smooth clutch zoom */
+}
+#radar-img { width: 1024px; height: 1024px; display: block; opacity: 0.9; }
+.rdot {
+  position: absolute; width: 90px; height: 90px;
+  margin-left: -45px; margin-top: -45px; /* center on coordinate */
+  transition: opacity 0.3s;
+}
+.rdot .rcone {
+  position: absolute; inset: 0;
+  transition: transform 0.12s linear;
+  /* small arrow tip orbiting the dot (wrapper rotated by JS, 0deg = up) */
+}
+.rdot .rcone::before {
+  content: ''; position: absolute; left: 50%; top: -6px;
+  transform: translateX(-50%);
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 16px solid currentColor;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+.rdot .rcore {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 800; color: #06121a;
+  border: 3px solid rgba(255,255,255,0.85);
+}
+.rdot.ct .rcore { background: var(--ct); }
+.rdot.ct .rcone { color: var(--ct); }
+.rdot.t .rcore { background: var(--t); }
+.rdot.t .rcone { color: var(--t); }
+.rdot.observed .rcore { border-color: #fff; box-shadow: 0 0 14px #fff; }
+.rdot.has-c4 .rcore { border-color: #ff4646; box-shadow: 0 0 10px rgba(255,70,70,0.8); }
+#rbomb {
+  position: absolute; width: 64px; height: 64px;
+  margin-left: -32px; margin-top: -32px;
+  color: #ff4646; display: none;
+  animation: pulse-red 0.8s ease-in-out infinite;
+}
+#rbomb.show { display: block; }
+
+/* grenades layer: trails + effect zones, under player dots */
+#rnades {
+  position: absolute; left: 0; top: 0;
+  width: 1024px; height: 1024px;
+  pointer-events: none;
+}
+#rnades .rg-trail {
+  fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
+  opacity: 0.9; vector-effect: non-scaling-stroke;
+}
+#rnades .rg-smoke {
+  fill: rgba(185,192,200,0.45); stroke: rgba(220,228,235,0.95);
+  stroke-width: 4; vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(200,210,220,0.5));
+}
+#rnades .rg-smoke.ct { stroke: var(--ct); filter: drop-shadow(0 0 7px var(--ct)); }
+#rnades .rg-smoke.t  { stroke: var(--t); filter: drop-shadow(0 0 7px var(--t)); }
+#rnades .rg-fire  {
+  fill: url(#rgFireGrad);
+  filter: drop-shadow(0 0 10px rgba(255,120,40,0.85));
+}
+#rnades .rg-ring { fill: none; stroke-width: 4; vector-effect: non-scaling-stroke; }
+#rnades .rg-ic { fill: currentColor; }
+
+/* ============ RADAR-ONLY VIEW (#radar): full-window radar for observers ============ */
+body.radar-only { background: #0d0f16; }
+body.radar-only .players,
+body.radar-only #obsplayer,
+body.radar-only #topbar,
+body.radar-only #mapstrip,
+body.radar-only #roundbanner,
+body.radar-only #roundhist,
+body.radar-only #bombbar,
+body.radar-only #actor,
+body.radar-only #timeout,
+body.radar-only .fz-team,
+body.radar-only #edit-toolbar,
+body.radar-only #edit-pill { display: none !important; }
+body.radar-only #radar {
+  transform-origin: top left; /* position + scale set by JS to fit window */
+}
+
+/* ============ FREEZETIME ECONOMY (utility + team money) ============ */
+.fz-team {
+  position: absolute; bottom: 425px; width: 305px;
+  padding: 6px 14px 8px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+  backdrop-filter: blur(4px);
+  opacity: 0; visibility: hidden; transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+.fz-team.show {
+  opacity: 1; visibility: visible; transform: none;
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s;
+}
+#fz-ct { left: 18px; border-top: 3px solid var(--ct); }
+#fz-t { right: 18px; border-top: 3px solid var(--t); }
+.fz-nades { display: flex; justify-content: center; gap: 14px; padding: 2px 0 6px; border-bottom: 1px solid var(--border); }
+.fz-item { display: flex; align-items: center; gap: 5px; font-size: 16px; font-weight: 800; }
+.fz-item .wic { height: 24px; }
+#fz-ct .fz-item { color: var(--ct); }
+#fz-t .fz-item { color: var(--t); }
+.fz-item span { color: #fff; }
+.fz-eco { display: flex; justify-content: space-between; padding-top: 6px; }
+.fz-eco .fz-cell { display: flex; flex-direction: column; gap: 1px; }
+.fz-eco .label { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700; }
+#fz-ct .fz-eco .label { color: var(--ct); }
+#fz-t .fz-eco .label { color: var(--t); }
+.fz-eco .val { font-size: 19px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+.fz-pips { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.fz-pip { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+#fz-ct .fz-pip.on { background: var(--ct); }
+#fz-t .fz-pip.on { background: var(--t); }
+
+/* ============ LAYOUT VARIANT: BOTTOM ROW (?layout=bottom, used by the astra-bottom loader) ============
+   Square cards in one horizontal row at bottom-left / bottom-right, instead of the
+   default 72px-tall side columns. Every rule is scoped under body.layout-bottom +
+   .players, so the default side layout and #obsplayer (which reuses .pmid/.pkd/.prk
+   markup) are completely untouched. */
+body.layout-bottom .players { flex-direction: row; width: auto; bottom: 14px; gap: 6px; }
+body.layout-bottom #players-left { left: 14px; }
+body.layout-bottom #players-right { right: 14px; }
+body.layout-bottom .players .prow { width: 132px; height: 142px; flex: none; overflow: visible; }
+/* team color arc: vertical side bar → horizontal bar along the bottom edge */
+body.layout-bottom .players .prow::before,
+body.layout-bottom .players.ct .prow::before,
+body.layout-bottom .players.t .prow::before {
+  top: auto; bottom: 0; left: 6px; right: 6px; width: auto; height: 4px;
+}
+/* card interior: absolute zones, identical on both sides (no T-side row-reverse mirror) */
+body.layout-bottom .players .pbody,
+body.layout-bottom .players.ct .pbody,
+body.layout-bottom .players.t .pbody { padding: 0; flex-direction: row; }
+/* avatar: top-left block. Position via left/top only — the inline transform stays
+   reserved for the per-player scale/offset set from the app's Players page */
+body.layout-bottom .players .pavatar,
+body.layout-bottom .players.ct .pavatar,
+body.layout-bottom .players.t .pavatar { position: absolute; left: 6px; right: auto; top: 16px; width: 72px; height: 72px; margin: 0; z-index: 1; }
+/* hp number + armor/kit/c4 icons: top-right, right-aligned */
+body.layout-bottom .players .php { position: absolute; top: 26px; right: 5px; left: auto; width: auto; text-align: right; }
+body.layout-bottom .players .php .hpnum { font-size: 30px; }
+body.layout-bottom .players .php .hpnum .ico { width: 20px; height: 20px; }
+/* armor row: reversed so the armor icon sits right under the hp digits, kit/c4 extend leftward */
+body.layout-bottom .players .php .parmor { flex-direction: row-reverse; justify-content: flex-end; gap: 2px; margin-top: 0; min-height: 16px; }
+body.layout-bottom .players .php .parmor .ico { width: 16px; height: 16px; }
+body.layout-bottom .players .php .parmor .aslot { width: 16px; height: 16px; }
+/* hp fill: vertical bar, full width, anchored to the bottom edge so it drains top→bottom.
+   border-radius keeps the card's round corners (prow overflow is visible for the kill badge) */
+body.layout-bottom .players .pfill,
+body.layout-bottom .players.ct .pfill,
+body.layout-bottom .players.t .pfill {
+  top: auto; bottom: 0; left: 0; right: 0; width: 100%;
+  border-radius: 8px;
+  transition: height 0.25s ease;
+}
+/* name + K/D: single row above the color bar (money moved up under the armor icons,
+   so the name gets the full strip width and no longer truncates) */
+/* containers become positioning canvases; each child is placed absolutely */
+body.layout-bottom .players .pinfo,
+body.layout-bottom .players .pmid { position: absolute; inset: 0; width: auto; padding: 0; display: block; }
+/* name: top-right, under the armor icons (swapped with money); sits above the avatar
+   layer so a long id may overlap the avatar's lower edge */
+body.layout-bottom .players .pname {
+  position: absolute; top: 73px; right: 8px; z-index: 2;
+  font-size: 13px; max-width: 122px; text-align: right;
+}
+/* weapon: left half of the equipment row; grenades: right half — both fixed */
+body.layout-bottom .players .pweap { position: absolute; left: 6px; bottom: 30px; margin: 0; min-height: 21px; width: 52px; justify-content: center; }
+body.layout-bottom .players .pweap .wic { height: 21px; max-width: 50px; }
+body.layout-bottom .players .pnades { position: absolute; right: 6px; bottom: 30px; min-height: 15px; gap: 3px; }
+body.layout-bottom .players .pnades .wic { height: 15px; }
+body.layout-bottom .players .pnades .wslot { width: 15px; height: 15px; }
+body.layout-bottom .players .pnades .wwrap { width: 15px; height: 15px; }
+/* K/D (left) + money (right): the bottom strip above the color bar */
+body.layout-bottom .players .pstat {
+  position: absolute; left: 6px; right: 8px; bottom: 7px;
+  flex-direction: row; align-items: center; justify-content: space-between; gap: 6px; min-height: 0;
+}
+body.layout-bottom .players .pkd { font-size: 14px; }
+body.layout-bottom .players .pkd .ico { width: 14px; height: 14px; }
+body.layout-bottom .players .pmoney { font-size: 13px; }
+/* slot number tab: always the top-LEFT corner in the square-card layout
+   (hp lives at top-right, so the default T-side right tab would cover it) */
+body.layout-bottom .players .pslot,
+body.layout-bottom .players.ct .pslot,
+body.layout-bottom .players.t .pslot {
+  left: 0; right: auto; padding-left: 9px; padding-right: 10px;
+  clip-path: none; /* slanted tab had a sharp top-left corner that clashed with the card's round corner */
+  border-radius: 8px 0 6px 0;
+}
+body.layout-bottom .players.ct .pslot { background: var(--ct); }
+body.layout-bottom .players.t .pslot { background: var(--t); }
+/* round-kills badge: top-RIGHT corner, its bottom edge sitting on the card's top edge */
+body.layout-bottom .players.ct .prk,
+body.layout-bottom .players.t .prk { right: 6px; left: auto; top: auto; bottom: 100%; }
+/* freezetime economy: hoist above the card row (cards occupy bottom 14px + 142px), sides unchanged */
+body.layout-bottom .fz-team { bottom: 176px; }
+/* raise the observed-player card above the taller tile rows (tiles top out at 156px) */
+body.layout-bottom #obsplayer { bottom: 96px; }
+
+/* ============ ROUND HISTORY (freezetime, top center) ============ */
+#roundhist {
+  position: absolute; top: 140px; left: 50%;
+  padding: 8px 18px 10px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+  backdrop-filter: blur(4px);
+  text-align: center;
+  opacity: 0; visibility: hidden; transform: translate(-50%, 10px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+#roundhist.show {
+  opacity: 1; visibility: visible; transform: translate(-50%, 0);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s;
+}
+.rh-title { font-size: 12px; letter-spacing: 2.5px; font-weight: 800; color: rgba(255,255,255,0.6); margin-bottom: 5px; }
+.rh-row { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.rh-row + .rh-row { margin-top: 4px; }
+.rh-side { font-size: 12px; font-weight: 800; width: 22px; text-align: left; }
+.rh-row.ct .rh-side { color: var(--ct); }
+.rh-row.t .rh-side { color: var(--t); }
+.rh-cells { display: flex; gap: 5px; }
+.rh-cell { display: flex; flex-direction: column; align-items: center; width: 24px; }
+.rh-mark {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box;
+}
+.rh-mark .ico { width: 14px; height: 14px; }
+.rh-row.ct .rh-mark.win { border-color: var(--ct); background: var(--ct); }
+.rh-row.t .rh-mark.win { border-color: var(--t); background: var(--t); }
+.rh-mark.cur { border-color: #fff; box-shadow: 0 0 7px rgba(255,255,255,0.7); }
+.rh-num { font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.45); height: 11px; line-height: 11px; font-variant-numeric: tabular-nums; }
+
+/* hide player columns & observed panel during tactical timeout (not in layout editor) */
+body.phase-timeout:not(.editing) .players, body.phase-timeout:not(.editing) #obsplayer, body.phase-timeout:not(.editing) .clutch { display: none !important; }
+
+/* ============ OBSERVED PLAYER (spectating) ============ */
+#obsplayer {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+  width: 470px; height: 68px; display: none;
+}
+#obsplayer.show { display: block; }
+/* card background layer: keeps the rounded-rect clip for the hp fill,
+   while the avatar (in .opbody) is free to rise above the top edge */
+.opcard {
+  position: absolute; inset: 0; overflow: hidden;
+  background: rgba(4, 6, 10, calc(0.9 * var(--bg-a)));
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+}
+/* signature bright color arc on the left edge */
+#obsplayer::before {
+  content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; z-index: 3;
+}
+#obsplayer.ct::before { background: var(--ct); box-shadow: 0 0 8px var(--ct); }
+#obsplayer.t::before { background: var(--t); box-shadow: 0 0 8px var(--t); }
+/* clutch card shares the observed card's look */
+.clutch::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 4px; border-radius: 4px; z-index: 3; }
+.clutch.ct::before { background: var(--ct); box-shadow: 0 0 8px var(--ct); }
+.clutch.t::before { background: var(--t); box-shadow: 0 0 8px var(--t); }
+.clutch.ct .pfill { background: linear-gradient(180deg, color-mix(in srgb, var(--ct), #000 52%), color-mix(in srgb, var(--ct), #000 70%)); }
+.clutch.t .pfill { background: linear-gradient(180deg, color-mix(in srgb, var(--t), #000 48%), color-mix(in srgb, var(--t), #000 66%)); }
+.clutch.low .pfill { background: linear-gradient(180deg, #b03030, #7e1f1f) !important; }
+/* clutch kill badge: above the card's top-right corner, bottom flush with the card's top edge */
+.clutch .prk { position: absolute; left: auto; right: 6px; top: auto; bottom: 100%; }
+/* clutch equipment row: grenades shift left, armor/kit/C4 takes the freed right side */
+.clutch .pequip { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 19px; }
+.clutch .parmor { display: flex; gap: 3px; min-height: 19px; color: rgba(255,255,255,0.85); }
+.clutch .parmor .ico { width: 19px; height: 19px; }
+.clutch .parmor .aslot { width: 19px; height: 19px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.opbody { position: relative; z-index: 2; display: flex; align-items: center; height: 100%; padding: 0 12px 0 14px; gap: 10px; }
+.op-slot { font-size: 12px; font-weight: 800; color: #06121a; background: #fff; border-radius: 3px; padding: 1px 6px; flex: none; min-width: 18px; text-align: center; }
+.op-hp { flex: none; width: 56px; text-align: center; font-size: 32px; font-weight: 800; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); font-variant-numeric: tabular-nums; }
+.op-hp .ico { width: 26px; height: 26px; color: #ff6b6b; }
+.op-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.op-namerow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.op-namerow .op-name { min-width: 0; }
+/* big portrait avatar: bottom-anchored to the card, rises ~24px above the top edge.
+   transparent background so cutout PNG portraits blend in */
+/* big portrait avatar: horizontally centered, standing entirely ABOVE the card
+   (bottom edge flush with the card's top edge), like tournament HUDs.
+   transparent background so cutout PNG portraits blend in */
+.opavatar {
+  position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+  transform-origin: bottom center; /* scaling keeps the feet planted on the card */
+  width: 98px; height: 132px; object-fit: contain; object-position: center bottom;
+  background: transparent; z-index: 4; pointer-events: none;
+}
+.op-name { font-size: 17px; font-weight: 800; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#obsplayer .pkd { font-size: 16px; }
+#obsplayer .pkd .ico { width: 16px; height: 16px; }
+.op-side { flex: none; width: 88px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.op-side .parmor { display: flex; gap: 3px; min-height: 18px; color: rgba(255,255,255,0.85); }
+.op-side .parmor .ico { width: 18px; height: 18px; }
+.op-side .parmor .aslot { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.op-side .op-ammo { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 16px; font-size: 14px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+.op-side .op-ammo .ico { width: 15px; height: 15px; color: rgba(255,255,255,0.75); }
+/* weapon + grenade zone in the observed card: fixed width so picking up a gun
+   (wider icon) or buying nades never slides the row — everything stays put */
+#obsplayer .pmid { width: 96px; flex: none; }
+.op-money { font-size: 14px; font-weight: 800; color: #42e35f; font-variant-numeric: tabular-nums; }
+
+/* ============ LAYOUT EDITOR (#edit mode) ============ */
+body.editing { background: #0d0f16; }
+body.editing::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+body.editing #bombbar, body.editing #roundbanner, body.editing #radar { display: block !important; }
+body.editing #timeout { opacity: 1 !important; visibility: visible !important; }
+body.editing #actor { opacity: 1 !important; visibility: visible !important; transform: translate(-50%, 0) !important; }
+body.editing #obsplayer { display: block !important; }
+body.editing .fz-team { opacity: 1 !important; visibility: visible !important; }
+/* clutch cards: visible in edit mode so they can be positioned like any other part */
+body.editing .clutch { opacity: 1 !important; visibility: visible !important; }
+body.editing .clutch:not([data-norm]) { transform: none !important; }
+/* force the CSS anchor transform only while the part has no explicit position yet;
+   once normalized/dragged (data-norm), inline left/top + transform:none must win */
+body.editing .fz-team:not([data-norm]) { transform: none !important; }
+body.editing #roundhist { opacity: 1 !important; visibility: visible !important; }
+body.editing #roundhist:not([data-norm]) { transform: translate(-50%, 0) !important; }
+body.editing #waiting { display: none !important; }
+.editing .editable { outline: 2px dashed rgba(0,240,255,0.6); outline-offset: 4px; cursor: move; overflow: visible !important; }
+/* keep the huge timeout panel at the bottom of the stacking order while editing,
+   so smaller parts overlapping it stay clickable */
+.editing .editable { z-index: 10; }
+.editing #timeout.editable { z-index: 1; }
+.editing .editable.selected { outline-color: var(--astra-secondary); outline-style: solid; }
+.snap-guide { position: absolute; display: none; z-index: 99999; pointer-events: none; }
+.snap-guide.v { top: 0; bottom: 0; width: 0; border-left: 2px solid rgba(255,46,99,0.9); }
+.snap-guide.h { left: 0; right: 0; height: 0; border-top: 2px solid rgba(255,46,99,0.9); }
+.rz {
+  position: absolute; right: -18px; bottom: -18px; width: 24px; height: 24px;
+  background: var(--astra-primary); border: 2px solid #000; border-radius: 4px;
+  cursor: nwse-resize; display: none; z-index: 999; pointer-events: auto;
+}
+.editing .editable .rz { display: block; }
+#edit-toolbar {
+  position: fixed; top: 12px; left: 12px; z-index: 9999;
+  display: none; align-items: center; gap: 10px;
+  background: rgba(10,12,20,0.95); border: 1px solid rgba(0,240,255,0.3); border-radius: 10px;
+  padding: 10px 16px; font-family: "Segoe UI", sans-serif;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.editing #edit-toolbar { display: flex; }
+#edit-toolbar .tb-title { color: #fff; font-weight: 800; font-size: 14px; letter-spacing: 1px; cursor: move; user-select: none; }
+#edit-toolbar .tb-hint { color: rgba(255,255,255,0.45); font-size: 11px; }
+#edit-pill {
+  position: fixed; top: 12px; left: 12px; z-index: 9999; display: none;
+  padding: 8px 14px; border-radius: 8px;
+  background: rgba(10,12,20,0.95); border: 1px solid rgba(0,240,255,0.3);
+  color: #fff; font: 700 12px "Segoe UI", sans-serif; letter-spacing: 1px;
+  cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+body.editing.tb-folded #edit-toolbar { display: none !important; }
+body.editing.tb-folded #edit-pill { display: block; }
+#edit-toolbar button {
+  padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.06); color: #fff; font-size: 12px; font-weight: 700;
+  cursor: pointer;
+}
+#edit-toolbar button:hover { background: rgba(255,255,255,0.12); }
+#edit-toolbar button.primary { background: rgba(0,240,255,0.15); border-color: rgba(0,240,255,0.4); color: var(--astra-primary); }
+
+/* connection dot removed */
+</style>
+</head>
+<body>
+<div id="hud">
+  <!-- Top bar -->
+  <div id="topbar">
+    <div class="tside ct">
+      <div class="tlogo" id="logo-ct"><span class="tinitial">CT</span></div>
+      <div class="tmeta">
+        <div class="tname" id="name-ct">CT TEAM</div>
+        <div class="tseries" id="series-ct"></div>
+      </div>
+      <div class="tscore" id="score-ct">0</div>
+    </div>
+    <div id="tcenter">
+      <div id="timerrow"><span id="timer">-:--</span></div>
+      <div id="roundlbl">WAITING</div>
+      <div id="matchlbl"><img id="eventlogo-tb" class="evlogo" style="display:none" alt=""><span id="matchname"></span></div>
+    </div>
+    <div class="tside t">
+      <div class="tlogo" id="logo-t"><span class="tinitial">T</span></div>
+      <div class="tmeta">
+        <div class="tname" id="name-t">T TEAM</div>
+        <div class="tseries" id="series-t"></div>
+      </div>
+      <div class="tscore" id="score-t">0</div>
+    </div>
+  </div>
+
+  <div id="mapstrip"></div>
+
+  <!-- Freezetime economy panels (above each team column) -->
+  <div class="fz-team" id="fz-ct">
+    <div class="fz-nades" id="fz-nades-ct"></div>
+    <div class="fz-eco">
+      <div class="fz-cell"><span class="label">Team Money</span><span class="val" id="fz-money-ct">$0</span></div>
+      <div class="fz-cell" style="text-align:right"><span class="label">Loss Bonus</span><span class="val"><span id="fz-bonus-ct">$0</span><span class="fz-pips" id="fz-pips-ct"></span></span></div>
+    </div>
+  </div>
+  <div class="fz-team" id="fz-t">
+    <div class="fz-nades" id="fz-nades-t"></div>
+    <div class="fz-eco">
+      <div class="fz-cell"><span class="label">Team Money</span><span class="val" id="fz-money-t">$0</span></div>
+      <div class="fz-cell" style="text-align:right"><span class="label">Loss Bonus</span><span class="val"><span id="fz-bonus-t">$0</span><span class="fz-pips" id="fz-pips-t"></span></span></div>
+    </div>
+  </div>
+
+  <!-- Round history (freezetime, top center) -->
+  <div id="roundhist"></div>
+
+  <div id="players-left" class="players ct"></div>
+  <div id="players-right" class="players t"></div>
+
+  <!-- Clutch card: the last alive player of a team (OB-card style, bottom-center, biased toward that team) -->
+  <div id="clutch-ct" class="clutch"></div>
+  <div id="clutch-t" class="clutch"></div>
+
+  <!-- Observed player (spectating) -->
+  <div id="obsplayer">
+    <div class="opcard"><div class="pfill" id="op-fill"></div></div>
+    <div class="opbody">
+      <span class="op-slot" id="op-slot"></span>
+      <span class="prk" id="op-rk"></span>
+      <div class="op-hp" id="op-hpnum"></div>
+      <img class="opavatar" id="op-avatar" alt="">
+      <div class="op-info">
+        <div class="op-namerow"><span class="op-name" id="op-name"></span></div>
+        <span class="pkd" id="op-kd"></span>
+      </div>
+      <div class="pmid">
+        <div class="pweap" id="op-weap"></div>
+        <div class="pnades" id="op-nades"></div>
+      </div>
+      <div class="op-side">
+        <span class="parmor" id="op-icons"></span>
+        <span class="op-ammo" id="op-ammo"></span>
+        <span class="op-money" id="op-money"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tactical Timeout overlay -->
+  <div id="timeout">
+    <div id="to-title">TACTICAL TIMEOUT</div>
+    <div id="to-body">
+      <div class="to-team ct" id="to-team-ct"></div>
+      <div class="to-center">
+        <img id="eventlogo-to" class="evlogo-to" style="display:none" alt="">
+        <div class="to-score"><span class="ct" id="to-score-ct">0</span> <span style="color:rgba(255,255,255,0.4)">:</span> <span class="t" id="to-score-t">0</span></div>
+        <div class="to-vs" id="to-mapname"></div>
+      </div>
+      <div class="to-team t" id="to-team-t"></div>
+    </div>
+  </div>
+
+  <div id="bombbar"><div id="bombfill"></div></div>
+  <div id="actor"><span id="actor-ic"></span><span id="actor-name">PLAYER</span><span id="actor-verb">IS PLANTING</span><span id="actor-kit"></span><div id="actor-track"><div id="actor-fill"></div></div></div>
+
+  <div id="roundbanner"></div>
+
+  <!-- Radar -->
+  <div id="radar">
+    <div id="radar-inner">
+      <img id="radar-img" alt="">
+      <svg id="rnades" viewBox="0 0 1024 1024"></svg>
+      <!-- static defs: fire gradient lives outside #rnades (its innerHTML is rewritten every frame) -->
+      <svg width="0" height="0" style="position:absolute"><defs>
+        <radialGradient id="rgFireGrad">
+          <stop offset="0%" stop-color="#ffeb96" stop-opacity="0.95"/>
+          <stop offset="35%" stop-color="#ff9632" stop-opacity="0.75"/>
+          <stop offset="70%" stop-color="#ff5514" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="#ff3c0a" stop-opacity="0"/>
+        </radialGradient>
+      </defs></svg>
+      <div id="radar-dots"></div>
+      <svg id="rbomb" viewBox="0 0 256 256" class="ico"><use href="#i-c4"/></svg>
+    </div>
+  </div>
+
+  <div id="waiting"><span class="dot"></span>WAITING FOR GSI</div>
+
+  <!-- Layout editor toolbar (edit mode only) -->
+  <div id="edit-toolbar">
+    <span class="tb-title" id="tb-drag" title="按住拖动工具栏">ASTRA HUD LAYOUT</span>
+    <span class="tb-hint">拖拽移动（自动吸附对齐）· 右下角缩放 · Shift+点击多选</span>
+    <button id="tb-reset">Reset</button>
+    <button id="tb-done" class="primary">Done</button>
+    <button id="tb-fold" title="收起工具栏">–</button>
+  </div>
+  <div id="edit-pill" title="展开工具栏">☰ LAYOUT</div>
+</div>
+
+
+<script>
+'use strict';
+/* ================= Astra Default HUD =================
+ * Data: Project Replay replay-hud events (live CS2 GSI)
+ * Match/teams: LHM-compatible API on http://127.0.0.1:6657
+ * Colors: --astra-* CSS vars injected by Astra Director overlay window
+ * ===================================================== */
+
+const $ = id => document.getElementById(id);
+
+/* ---------- SVG icon sprite (paths have no fill -> follow CSS color) ---------- */
+const SPRITE = {
+  timer: 'icon_timer_default.svg', bomb: 'icon_bomb_default.svg', c4: 'icon_c4_default.svg',
+  defuse: 'icon_defuse_default.svg', armor: 'icon_armor_half_default.svg',
+  helmet: 'icon_armor_helmet_default.svg', health: 'icon_health_default.svg',
+  skull: 'icon_skull_default.svg', kills: 'icon_kills.svg', bullets: 'icon_bullets_default.svg'
+};
+const WEAPON_FILES = ['ak47','aug','awp','bayonet','bizon','c4','cz75a','deagle','decoy','elite','famas','fiveseven','flashbang','g3sg1','galilar','glock','hegrenade','hkp2000','incgrenade','inferno','knife','knife_bayonet','knife_butterfly','knife_canis','knife_cord','knife_css','knife_falchion','knife_flip','knife_gut','knife_gypsy_jackknife','knife_karambit','knife_m9_bayonet','knife_outdoor','knife_push','knife_skeleton','knife_stiletto','knife_survival_bowie','knife_t','knife_tactical','knife_ursus','knife_widowmaker','m249','m4a1','m4a1_silencer','mac10','mag7','molotov','mp5sd','mp7','mp9','negev','nova','p250','p90','revolver','sawedoff','scar20','sg556','smokegrenade','ssg08','taser','tec9','ump45','usp_silencer','xm1014'];
+const WB = {}; // weapon id -> {w, h} viewBox size
+async function svgToSymbol(id, url, fallbackVb) {
+  try {
+    const t = await fetch(url).then(r => r.text());
+    const tag = t.match(/<svg[^>]*>/);
+    const body = t.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
+    if (!body) return null;
+    const vbMatch = tag && tag[0].match(/viewBox="([^"]+)"/);
+    const vb = vbMatch ? vbMatch[1] : fallbackVb;
+    return { html: '<symbol id="' + id + '" viewBox="' + vb + '">' + body[1].replace(/ fill="[^"]*"/g, '') + '</symbol>', vb };
+  } catch (e) { return null; }
+}
+async function loadSprite() {
+  const parts = [];
+  for (const [id, f] of Object.entries(SPRITE)) {
+    const s = await svgToSymbol('i-' + id, 'assets/' + f, '0 0 256 256');
+    if (s) parts.push(s.html);
+  }
+  for (const w of WEAPON_FILES) {
+    const s = await svgToSymbol('w-' + w, 'assets/weapons/' + w + '.svg', '0 0 100 40');
+    if (s) {
+      parts.push(s.html);
+      const p = s.vb.split(/\s+/).map(Number);
+      WB[w] = { w: p[2] || 100, h: p[3] || 40 };
+    }
+  }
+  const div = document.createElement('div');
+  div.style.display = 'none';
+  div.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg">' + parts.join('') + '</svg>';
+  document.body.appendChild(div);
+  spriteReady = true;
+  if (lastGsi) render(lastGsi); // re-render once weapon viewBoxes are known
+}
+function icon(id, cls) {
+  return '<svg class="ico ' + (cls || '') + '" viewBox="0 0 256 256"><use href="#i-' + id + '"/></svg>';
+}
+function weaponIcon(rawName, cls) {
+  let id = (rawName || '').replace(/^weapon_/, '');
+  if (!WB[id]) {
+    if (id === 'm4a1_silencer_off') id = 'm4a1_silencer';
+    else if (id === 'usp_silencer_off') id = 'usp_silencer';
+  }
+  // unknown knife variants (kukri etc.) -> generic knife icon
+  if (!WB[id] && (id.indexOf('knife') === 0 || id.indexOf('bayonet') === 0)) id = 'knife';
+  if (!WB[id]) return icon('bullets', cls);
+  return '<svg class="wic ' + (cls || '') + '" viewBox="0 0 ' + WB[id].w + ' ' + WB[id].h + '"><use href="#w-' + id + '"/></svg>';
+}
+
+/* ---------- Weapon pretty names: icons come from SVG sprite (w-*) ---------- */
+
+/* ---------- State ---------- */
+let teamsInfo = { left: { name: '', logo: '' }, right: { name: '', logo: '' } };
+let matchInfo = null; // { matchType, left:{wins}, right:{wins}, vetos:[] }
+let lastGsi = null;
+let phaseEndsAt = 0;
+let curPhase = '';
+let bombState = null;
+let lastMapRound = null;
+// Technical pause: GSI reports phase 'paused' during mp_pause_match (same approach as
+// JTs-Hud/OpenHud). Older/edge builds may instead freeze in 'freezetime' with
+// phase_ends_in not ticking — kept as a fallback heuristic.
+let techPaused = false;
+let lastFreezeEndsIn = null;
+let freezeStuckSince = 0;
+let hudScale = 1; // current #hud scale factor (used by layout editor math)
+
+/* ---------- Fit to window (design 1920x1080) ---------- */
+function fit() {
+  const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+  hudScale = s;
+  $('hud').style.transform = 'scale(' + s + ')';
+}
+window.addEventListener('resize', fit);
+fit();
+
+/* ---------- Match/team API polling (same-origin on the HUD server) ---------- */
+async function pollMatchData() {
+  try {
+    const [m, l, r] = await Promise.all([
+      fetch('/api/match/current').then(x => x.json()),
+      fetch('/api/teams/left').then(x => x.json()),
+      fetch('/api/teams/right').then(x => x.json())
+    ]);
+    matchInfo = m;
+    teamsInfo.left = l || teamsInfo.left;
+    teamsInfo.right = r || teamsInfo.right;
+    // Match name + event logo row under the round label in the topbar center
+    const mn = $('matchname');
+    const mName = (m && m.name) || '';
+    if (mn && mn.textContent !== mName) mn.textContent = mName;
+    // Event logo in topbar center + timeout panel
+    const ev = m.eventLogo || '';
+    ['eventlogo-tb', 'eventlogo-to'].forEach(id => {
+      const img = $(id);
+      if (!img) return;
+      const src = ev ? '/logos/' + ev : '';
+      if (img.dataset.cur !== src) {
+        img.dataset.cur = src;
+        if (src) { img.src = src; img.style.display = 'block'; }
+        else { img.removeAttribute('src'); img.style.display = 'none'; }
+      }
+    });
+    // hide the whole match label row when neither name nor logo is set
+    const ml = $('matchlbl');
+    if (ml) ml.classList.toggle('empty', !mName && !ev);
+  } catch (e) { /* LHM API not ready yet */ }
+}
+// Team names and scores come directly from the current GSI side assignment.
+
+/* ---------- Players API polling: steamid -> avatar file name (same-origin on the HUD server) ---------- */
+/* default avatar: head+shoulders silhouette, neutral gray (data URI, no network needed) */
+const DEFAULT_AVATAR_SVG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%237A8699'><circle cx='12' cy='7.6' r='4'/><path d='M12 13.4c-4.5 0-8.4 2.3-8.4 5.3V21h16.8v-2.3c0-3-3.9-5.3-8.4-5.3z'/></svg>";
+let playersInfo = {}; // steamid -> { a: avatar file, s: scale, x/y: px offset }
+async function pollPlayersData() {
+  try {
+    const list = await fetch('/api/players').then(x => x.json());
+    const map = {};
+    if (Array.isArray(list)) {
+      for (const p of list) {
+        if (p && p.steamid && (p.avatar || p.videoUrl)) map[String(p.steamid)] = {
+          a: p.avatar || '',
+          s: typeof p.avatarScale === 'number' ? p.avatarScale : 1,
+          x: typeof p.avatarX === 'number' ? p.avatarX : 0,
+          y: typeof p.avatarY === 'number' ? p.avatarY : 0,
+          v: normVdoUrl(p.videoUrl),
+        };
+      }
+    }
+    playersInfo = map;
+  } catch (e) { /* players API not ready yet */ }
+}
+// Use the bundled faction avatars; no third-party player API.
+function defaultAvatarFor(team) {
+  // split default avatar: static dark body + white line-art that gets team-tinted
+  return 'assets/' + (team === 'CT' ? 'ct_body.png' : 't_body.png');
+}
+function defaultLinesFor(team) {
+  return 'assets/' + (team === 'CT' ? 'ct_lines.png' : 't_lines.png');
+}
+function isDefaultAvatar(sid) {
+  const e = sid ? playersInfo[sid] : null;
+  return !(e && e.a);
+}
+/* Overlay div that paints the squad color through the line-art mask.
+   Lives between the avatar img (below) and any camera iframe (above). */
+function syncAvatarLines(img, team, show) {
+  if (!img || !img.parentNode) return;
+  let el = img._lines || null;
+  if (!show) { if (el) { el.remove(); img._lines = null; } return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.className = img.className.replace(/\bvcam\b/g, '').trim() + ' avatar-lines';
+    img.parentNode.insertBefore(el, img.nextSibling);
+    img._lines = el;
+  }
+  if (el.style.transform !== img.style.transform) el.style.transform = img.style.transform;
+  const bg = team === 'CT' ? 'var(--ct)' : 'var(--t)';
+  if (el.style.background !== bg) el.style.background = bg;
+  const m = 'url("' + defaultLinesFor(team) + '")';
+  if (el._mask !== m) { el._mask = m; el.style.webkitMaskImage = m; el.style.maskImage = m; }
+}
+function avatarSrcFor(sid, team) {
+  const e = sid ? playersInfo[sid] : null;
+  return e && e.a ? '/avatars/' + e.a : defaultAvatarFor(team);
+}
+/* VDO.Ninja camera: when a player has a camera link, an iframe the same size/position
+   as the avatar img is overlaid and the img is hidden */
+function normVdoUrl(raw) {
+  if (!raw) return null;
+  let u = String(raw).trim();
+  // full URL: keep every parameter (room/solo/etc. matter), just append display flags
+  if (/^https?:\/\//i.test(u)) {
+    if (!/vdo\.ninja/i.test(u)) return null;
+    for (const p of ['cleanoutput', 'transparent', 'autoplay', 'muted']) {
+      if (!u.includes(p)) u += '&' + p;
+    }
+    return u;
+  }
+  // bare stream ID
+  const m = u.match(/[?&](?:view|scene|push)=([A-Za-z0-9_-]+)/);
+  if (m) u = m[1];
+  if (!/^[A-Za-z0-9_-]+$/.test(u)) return null;
+  return 'https://vdo.ninja/?view=' + u + '&cleanoutput&transparent&autoplay&muted';
+}
+function syncVcam(img, sid) {
+  if (!img || !img.parentNode) return;
+  const e = sid ? playersInfo[sid] : null;
+  const url = e && e.v ? e.v : null;
+  let f = img._vcam || null;
+  if (url) {
+    if (!f) {
+      f = document.createElement('iframe');
+      f.className = img.className + ' vcam';
+      f.setAttribute('allow', 'autoplay; camera; microphone; fullscreen');
+      f.setAttribute('allowtransparency', 'true');
+      img.parentNode.insertBefore(f, img.nextSibling);
+      img._vcam = f;
+    }
+    if (f.dataset.vsrc !== url) { f.dataset.vsrc = url; f.src = url; }
+    if (f.style.transform !== img.style.transform) f.style.transform = img.style.transform;
+    // avatar stays visible underneath: the cam iframe has a transparent background,
+    // so the avatar shows through whenever no video frame is on top
+  } else {
+    if (f) { f.remove(); img._vcam = null; }
+  }
+}
+/* OB card: one hidden iframe per cam-linked player, all streaming in the background.
+   Switching spectated players just toggles which one is visible — no reload delay. */
+function syncVcamOp(img, sid) {
+  if (!img || !img.parentNode) return;
+  const e = sid ? playersInfo[sid] : null;
+  const url = e && e.v ? e.v : null;
+  for (const [psid, info] of Object.entries(playersInfo)) {
+    if (!info || !info.v) continue;
+    let f = img.parentNode.querySelector('iframe.vcam[data-sid="' + psid + '"]');
+    if (!f) {
+      f = document.createElement('iframe');
+      f.className = img.className + ' vcam';
+      f.dataset.sid = psid;
+      f.setAttribute('allow', 'autoplay; camera; microphone; fullscreen');
+      f.setAttribute('allowtransparency', 'true');
+      f.style.display = 'none';
+      img.parentNode.insertBefore(f, img.nextSibling);
+      f.src = info.v; // starts streaming right away, stays warm
+    }
+  }
+  img.parentNode.querySelectorAll('iframe.vcam').forEach(f => {
+    const pi = playersInfo[f.dataset.sid];
+    if (!pi || !pi.v) { f.remove(); return; } // player deleted or cam URL cleared — stop the stream
+    const on = !!url && f.dataset.sid === String(sid);
+    f.style.display = on ? '' : 'none';
+    if (on && f.style.transform !== img.style.transform) f.style.transform = img.style.transform;
+  });
+  // avatar stays visible underneath (transparent iframe lets it show through when offline)
+}
+// per-player display adjust from the Players page (scale + px offset)
+function avatarTfFor(sid) {
+  const e = sid ? playersInfo[sid] : null;
+  if (!e) return '';
+  return 'translate(' + e.x + 'px,' + e.y + 'px) scale(' + e.s + ')';
+}
+/* observed card avatar is static markup: wire fallback once */
+(function initObservedAvatar() {
+  const img = $('op-avatar');
+  if (!img) return;
+  img.onerror = function () { this.onerror = null; this.src = DEFAULT_AVATAR_SVG; if (this._lines) { this._lines.remove(); this._lines = null; } };
+  img.src = DEFAULT_AVATAR_SVG;
+})();
+
+/* ---------- Side detection: which app-team is CT? ---------- */
+function detectSides(gsi) {
+  // Authoritative side info from the app: the main process attaches leftIsCt to the
+  // match payload (/api/match/current -> matchInfo). true = app-left team plays CT,
+  // false = app-left team plays T (sides swapped), null/absent = unknown.
+  // Prefer it over name matching, which breaks when the recorded team names differ
+  // from the in-game names.
+  if (matchInfo && typeof matchInfo.leftIsCt === 'boolean') {
+    return { swapped: !matchInfo.leftIsCt };
+  }
+  // fallback: match GSI team names against the app-recorded names
+  // default: left team = CT, right team = T
+  const ctName = (gsi.map && gsi.map.team_ct && gsi.map.team_ct.name || '').toLowerCase().trim();
+  const tName = (gsi.map && gsi.map.team_t && gsi.map.team_t.name || '').toLowerCase().trim();
+  const lName = (teamsInfo.left.name || '').toLowerCase().trim();
+  const rName = (teamsInfo.right.name || '').toLowerCase().trim();
+  if (ctName && rName && ctName === rName && ctName !== lName) {
+    return { swapped: true }; // right team plays CT
+  }
+  if (tName && lName && tName === lName && tName !== rName) {
+    return { swapped: true };
+  }
+  return { swapped: false };
+}
+
+/* ---------- Timer ---------- */
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+setInterval(() => {
+  if (!lastGsi) return;
+  const remain = (phaseEndsAt - Date.now()) / 1000;
+  renderTimer(remain);
+}, 100);
+
+let timerC4Key = null; // null = countdown text, 'c4' = blinking icon, '' = placeholder
+function renderTimer(remain) {
+  const row = $('timerrow');
+  let label = '';
+  row.className = '';
+  if (curPhase === 'paused' || (curPhase === 'freezetime' && techPaused)) { row.classList.add('phase-timeout'); label = 'PAUSED'; }
+  else if (curPhase === 'freezetime') { row.classList.add('phase-freezetime'); label = 'FREEZETIME'; }
+  else if (curPhase === 'bomb') { row.classList.add('phase-bomb'); label = 'BOMB'; }
+  else if (curPhase === 'defuse') { row.classList.add('phase-defuse'); label = 'DEFUSE'; }
+  else if (curPhase === 'timeout_ct' || curPhase === 'timeout_t') { row.classList.add('phase-timeout'); label = 'TIMEOUT'; }
+  else if (curPhase === 'over') { row.classList.add('phase-over'); label = 'END'; }
+  // once planted, the countdown digits become a blinking red C4 (exact time is on the red strip)
+  const bombLive = curPhase === 'bomb' || curPhase === 'defuse';
+  const techNow = curPhase === 'paused' || (curPhase === 'freezetime' && techPaused);
+  if (techNow) {
+    // technical pause: no countdown — show a pause icon instead of frozen digits
+    if (timerC4Key !== 'tech') {
+      timerC4Key = 'tech';
+      $('timer').innerHTML = '<span class="techpause">' + PAUSE_SVG + '</span>';
+    }
+  } else if (bombLive) {
+    const key = spriteReady ? 'c4' : '';
+    if (timerC4Key !== key) {
+      timerC4Key = key;
+      $('timer').innerHTML = key ? '<span class="c4blink">' + icon('c4') + '</span>' : '';
+    }
+  } else {
+    timerC4Key = null;
+    $('timer').textContent = fmtTime(remain);
+  }
+  const map = lastGsi.map || {};
+  const rnum = (map.round || 0) + 1;
+  let roundText;
+  if (rnum <= 24) {
+    roundText = 'ROUND ' + rnum + ' / 24';
+  } else {
+    // Overtime (MR3): rounds 25-30 → first to 16, 31-36 → first to 19, then 22...
+    const target = 13 + 3 * Math.ceil((rnum - 24) / 6);
+    roundText = 'ROUND ' + rnum + ' · FIRST TO ' + target;
+  }
+  $('roundlbl').textContent = label ? (label + ' · R' + rnum) : roundText;
+}
+
+/* ---------- Bomb bar: slim strip, bomb explosion countdown only ---------- */
+let explodeAt = 0; // latched explosion timestamp (phase_ends_in during the 'bomb' phase IS the explosion time)
+function renderBomb() {
+  const bar = $('bombbar');
+  const planted = bombState && (bombState.state === 'planted' || bombState.state === 'defusing' || curPhase === 'bomb' || curPhase === 'defuse');
+  if (!planted) { explodeAt = 0; bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  // latch while in the bomb phase; once defusing starts, both phase_ends_in and
+  // bomb.countdown switch to the defuse timer — never read them for the bomb again
+  if (curPhase === 'bomb') explodeAt = phaseEndsAt;
+  // strip width follows the topbar width
+  const tb = $('topbar');
+  if (tb) { const tw = tb.offsetWidth; if (bar._tw !== tw) { bar._tw = tw; bar.style.width = tw + 'px'; } }
+  const remain = Math.max(0, ((explodeAt || phaseEndsAt) - Date.now()) / 1000);
+  $('bombfill').style.width = Math.min(100, remain / 40 * 100) + '%';
+}
+
+/* ---------- Plant/defuse actor chip (who is planting / defusing) ---------- */
+let lastActorKey = '';
+let plantStartAt = 0;
+function renderActor() {
+  const el = $('actor');
+  if (!el) return;
+  const fill = $('actor-fill');
+  const b = bombState || {};
+  let mode = '';
+  if (b.state === 'planting') mode = 'plant';
+  else if (b.state === 'defusing' || curPhase === 'defuse') mode = 'defuse';
+  if (!mode) {
+    plantStartAt = 0;
+    if (fill) fill.style.width = '0';
+    if (lastActorKey) { lastActorKey = ''; el.classList.remove('show'); }
+    return;
+  }
+  // GSI bomb.player = steamid of the player interacting with the bomb
+  let name = '', kit = false;
+  const all = (lastGsi && lastGsi.allplayers) || {};
+  const p = b.player ? all[b.player] : null;
+  if (p) { name = p.name || ''; kit = mode === 'defuse' && !!((p.state || {}).defusekit); }
+  el.classList.add('show');
+  el.classList.toggle('plant', mode === 'plant');
+  el.classList.toggle('defuse', mode === 'defuse');
+  const key = mode + '|' + name + '|' + kit;
+  if (key !== lastActorKey) {
+    lastActorKey = key;
+    $('actor-ic').innerHTML = icon(mode === 'plant' ? 'c4' : 'defuse');
+    $('actor-name').textContent = name || (mode === 'plant' ? 'T' : 'CT');
+    $('actor-verb').textContent = mode === 'plant' ? 'IS PLANTING' : 'IS DEFUSING';
+    $('actor-kit').textContent = kit ? 'KIT' : '';
+  }
+  // bottom mini progress bar: plant = 3.2s from first seen; defuse = phase countdown
+  if (fill) {
+    if (mode === 'plant') {
+      if (!plantStartAt) plantStartAt = Date.now();
+      fill.style.width = Math.min(100, (Date.now() - plantStartAt) / 3200 * 100) + '%';
+    } else {
+      plantStartAt = 0;
+      const remain = Math.max(0, (phaseEndsAt - Date.now()) / 1000);
+      const dMax = kit ? 5 : 10;
+      fill.style.width = Math.min(100, (1 - remain / dMax) * 100) + '%';
+    }
+  }
+}
+setInterval(renderBomb, 100);
+setInterval(renderActor, 100);
+
+/* ---------- Team logos & names ---------- */
+function renderTeams(gsi) {
+  const { swapped } = detectSides(gsi);
+  const ctInfo = swapped ? teamsInfo.right : teamsInfo.left;
+  const tInfo = swapped ? teamsInfo.left : teamsInfo.right;
+  const map = gsi.map || {};
+  const ctGsiName = map.team_ct && map.team_ct.name;
+  const tGsiName = map.team_t && map.team_t.name;
+
+  setTeamSide('ct', ctInfo, ctGsiName, map.team_ct && map.team_ct.score);
+  setTeamSide('t', tInfo, tGsiName, map.team_t && map.team_t.score);
+
+  // series wins
+  if (matchInfo) {
+    const ctWins = swapped ? (matchInfo.right && matchInfo.right.wins || 0) : (matchInfo.left && matchInfo.left.wins || 0);
+    const tWins = swapped ? (matchInfo.left && matchInfo.left.wins || 0) : (matchInfo.right && matchInfo.right.wins || 0);
+    setSeriesDots('ct', ctWins);
+    setSeriesDots('t', tWins);
+  }
+}
+/* team logo fallback chain (used via inline onerror): custom logo -> faction default
+   (__default_ct/__default_t in the data-dir logos folder) -> hide the img entirely,
+   so a missing file never shows a broken-image icon. */
+function logoFail(img, faction) {
+  if (!img.dataset.def) {
+    img.dataset.def = '1';
+    img.src = '/logos/__default_' + (faction === 't' ? 't' : 'ct') + '.png';
+  } else {
+    img.onerror = null;
+    img.style.display = 'none';
+  }
+}
+function setTeamSide(side, info, gsiName, score) {
+  const name = (info && info.name) || gsiName || (side === 'ct' ? 'COUNTER-TERRORISTS' : 'TERRORISTS');
+  const nameEl = $('name-' + side);
+  if (nameEl.textContent !== name) nameEl.textContent = name;
+  const logoEl = $('logo-' + side);
+  const logoSig = ((info && info.logo) || '') + '|' + name;
+  if (logoEl.dataset.sig !== logoSig) {
+    logoEl.dataset.sig = logoSig;
+    if (info && info.logo) {
+      logoEl.innerHTML = '<img src="/logos/' + encodeURIComponent(info.logo) + '" onerror="logoFail(this,\'' + side + '\')" alt="">';
+    } else {
+      const initial = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || side.toUpperCase();
+      logoEl.innerHTML = '<span class="tinitial">' + initial + '</span>';
+    }
+  }
+  if (typeof score === 'number') {
+    const sc = $('score-' + side);
+    if (sc.textContent !== String(score)) sc.textContent = score;
+  }
+}
+function setSeriesDots(side, wins) {
+  const el = $('series-' + side);
+  const html = seriesDots(wins);
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; }
+}
+function seriesDots(wins) {
+  if (!matchInfo) return '';
+  const need = matchInfo.matchType === 'bo1' ? 1 : matchInfo.matchType === 'bo5' ? 3 : 2;
+  let s = '';
+  for (let i = 0; i < need; i++) s += '<span class="' + (i < wins ? 'won' : '') + '"></span>';
+  return s;
+}
+
+/* ---------- Maps strip (图一图二图三 from vetos) ---------- */
+/* winner marker: mini team logo, fallback to team initial — bound to team identity, swap-proof */
+function miniTeamTag(side) {
+  const info = teamsInfo[side] || {};
+  // the tag is bound to team identity (left/right, swap-proof), but the default
+  // fallback logo is per faction — resolve which faction this team currently plays
+  const sw = lastGsi ? detectSides(lastGsi).swapped : false;
+  const faction = (side === 'left') !== sw ? 'ct' : 't';
+  if (info.logo) return '<span class="wteam"><img src="/logos/' + encodeURIComponent(info.logo) + '" onerror="logoFail(this,\'' + faction + '\')" alt=""></span>';
+  const initial = (info.name || '').replace(/[^A-Za-z0-9\u4e00-\u9fff]/g, '').slice(0, 2).toUpperCase();
+  return '<span class="wteam">' + (initial || '?') + '</span>';
+}
+function renderMapStrip(gsi) {
+  const el = $('mapstrip');
+  if (!matchInfo || !matchInfo.vetos || !matchInfo.vetos.length) {
+    if (el.dataset.html !== '') { el.dataset.html = ''; el.innerHTML = ''; }
+    return;
+  }
+  const curMap = ((gsi.map && gsi.map.name) || '').replace(/^de_/i, '').toLowerCase();
+  const played = matchInfo.vetos.filter(v => v.type === 'pick' || v.type === 'decider');
+  const html = played.map((v, i) => {
+    const mn = (v.mapName || '').replace(/^de_/i, '');
+    const isCur = mn.toLowerCase() === curMap;
+    const w = v.winner ? miniTeamTag(v.winner) : '';
+    const tag = v.type === 'decider' ? 'DECIDER' : 'MAP ' + (i + 1);
+    return '<div class="mapchip' + (isCur ? ' current' : '') + '"><span class="pickby">' + tag + '</span>' + esc(mn.toUpperCase()) + w + '</div>';
+  }).join('');
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; }
+}
+
+/* ---------- Players (stable DOM: update fields in place, no innerHTML churn -> no flicker) ---------- */
+const prowCache = { CT: new Map(), T: new Map() };
+let spriteReady = false;
+function buildProw() {
+  const root = document.createElement('div');
+  root.className = 'prow';
+  root.innerHTML =
+    '<div class="pfill"></div>' +
+    '<div class="pslot"></div>' +
+    '<div class="prk"></div>' +
+    '<div class="pbody">' +
+      '<div class="php"><div class="hpnum"></div><div class="parmor"></div></div>' +
+      '<div class="pmid"><div class="pweap"></div><div class="pnades"></div></div>' +
+      '<div class="pinfo"><div class="pname"></div><div class="pstat"><div class="pkd"></div><div class="pmoney"></div></div></div>' +
+      '<img class="pavatar" alt="">' +
+    '</div>';
+  const q = s => root.querySelector(s);
+  // side layout: money moves into the hp column (the armor row's old spot), and the
+  // armor/kit stack is reparented to the card root so its offsets are card-relative
+  // (absolute children of .php would anchor to the hp box and overlap hp/money);
+  // bottom layout keeps both in their original places
+  if (!document.body.classList.contains('layout-bottom')) {
+    q('.php').appendChild(q('.pmoney'));
+    root.appendChild(q('.parmor'));
+  }
+  const avatar = q('.pavatar');
+  avatar.onerror = function () { this.onerror = null; this.src = DEFAULT_AVATAR_SVG; if (this._lines) { this._lines.remove(); this._lines = null; } };
+  avatar.src = DEFAULT_AVATAR_SVG;
+  return { root, fill: q('.pfill'), slot: q('.pslot'), rk: q('.prk'), hpnum: q('.hpnum'), armor: q('.parmor'),
+    weap: q('.pweap'), nades: q('.pnades'), avatar, name: q('.pname'), kd: q('.pkd'), money: q('.pmoney'), last: {} };
+}
+function setTxt(el, v, refs, key) { if (refs.last[key] !== v) { refs.last[key] = v; el.textContent = v; } }
+function setHtml(el, v, refs, key) { if (refs.last[key] !== v) { refs.last[key] = v; el.innerHTML = v; } }
+
+/* round-kills badge: text via setTxt + pop animation whenever the count increases
+   (0->1 included, so the badge pops in on the first kill; round resets never pop) */
+function setRk(el, st, refs) {
+  const n = st.round_kills || 0;
+  const prev = refs.last.rkN == null ? 0 : refs.last.rkN;
+  refs.last.rkN = n;
+  setTxt(el, n > 0 ? String(n) + 'K' : '', refs, 'rk');
+  if (n > prev) {
+    el.classList.remove('rk-pop');
+    void el.offsetWidth; // restart the animation on rapid multi-kills
+    el.classList.add('rk-pop');
+  }
+}
+
+/* lucide-style outline skull (same as the app's data panel) */
+const SKULL_SVG = '<svg class="ico lskull" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></svg>';
+const PAUSE_SVG = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+
+/* weapon display priority: primary > pistol > knife; active item drawn white, rest grey */
+function pickShownWeapon(weapons) {
+  const isCarryGun = w => w.type !== 'Knife' && w.type !== 'Grenade' && w.type !== 'C4' && w.name !== 'weapon_c4' && w.type !== 'Pistol';
+  return weapons.find(isCarryGun) || weapons.find(w => w.type === 'Pistol') || weapons.find(w => w.type === 'Knife') || null;
+}
+function weaponStateCls(w) { return w && w.state === 'active' ? 'w-on' : 'w-off'; }
+
+/* fixed armor-row slots: armor/helmet → defuse kit → C4; missing ones keep an
+   invisible fixed-size slot so icons never shift position */
+function fixedArmorHtml(st, hasC4) {
+  return '<span class="aslot s-armor">' + (st.armor > 0 ? icon(st.helmet ? 'helmet' : 'armor') : '') + '</span>' +
+    '<span class="aslot s-kit">' + (st.defusekit ? icon('defuse') : '') + '</span>' +
+    '<span class="aslot s-c4">' + (hasC4 ? icon('c4') : '') + '</span>';
+}
+
+/* fixed grenade slots: flash → smoke → HE → fire. CS2 caps at 4 grenades, so 4 slots
+   always suffice; a second flash shows as a ×2 badge on the flash slot. Missing ones
+   render a small dot placeholder; decoys etc. append after. */
+function fixedNadesHtml(nades) {
+  const pool = nades.slice();
+  const take = pred => { const i = pool.findIndex(pred); return i >= 0 ? pool.splice(i, 1)[0] : null; };
+  const isFlash = n => n.name === 'weapon_flashbang';
+  const f1 = take(isFlash), f2 = take(isFlash);
+  const shownFlash = [f1, f2].find(f => f && f.state === 'active') || f1;
+  const flashHtml = shownFlash
+    ? '<span class="wwrap">' + weaponIcon(shownFlash.name, weaponStateCls(shownFlash)) +
+      (f2 ? '<span class="wnum">2</span>' : '') + '</span>'
+    : '<span class="wslot"></span>';
+  const slots = [
+    flashHtml,
+    ...[n => n.name === 'weapon_smokegrenade',
+        n => n.name === 'weapon_hegrenade',
+        n => /weapon_(molotov|incgrenade|incendiary)/.test(n.name)]
+      .map(d => { const n = take(d); return n ? '<span class="wwrap">' + weaponIcon(n.name, weaponStateCls(n)) + '</span>' : '<span class="wslot"></span>'; }),
+  ];
+  for (const n of pool) slots.push('<span class="wwrap">' + weaponIcon(n.name, weaponStateCls(n)) + '</span>'); // decoys etc. append after
+  return slots.join('');
+}
+
+function updatePlayerPanel(container, cache, players, observedSid) {
+  const seen = new Set();
+  for (const p of players) {
+    seen.add(p.sid);
+    let refs = cache.get(p.sid);
+    if (!refs) { refs = buildProw(); cache.set(p.sid, refs); }
+    const st = p.state || {};
+    const stats = p.match_stats || {};
+    const hp = Math.max(0, st.health || 0);
+    const dead = hp <= 0;
+    const weapons = Object.values(p.weapons || {});
+    const shown = pickShownWeapon(weapons);
+    const nades = weapons.filter(w => w.type === 'Grenade');
+    const hasC4 = weapons.some(w => w.name === 'weapon_c4');
+
+    refs.root.classList.toggle('dead', dead);
+    refs.root.classList.toggle('observed', p.sid === observedSid);
+    refs.root.classList.toggle('low', hp <= 25 && hp > 0);
+    // death flash: red glow the moment hp drops to 0 (cleared on respawn)
+    const prevHp = refs.last.hpval;
+    if (prevHp != null && prevHp > 0 && dead) {
+      refs.root.classList.remove('just-died');
+      void refs.root.offsetWidth; // restart the animation on rapid re-death
+      refs.root.classList.add('just-died');
+    } else if (!dead && prevHp === 0) {
+      refs.root.classList.remove('just-died');
+    }
+    refs.last.hpval = hp;
+    setTxt(refs.slot, p.observer_slot != null ? String((p.observer_slot + 1) % 10) : '', refs, 'slot');
+    setRk(refs.rk, st, refs);
+    setTxt(refs.name, p.name || '?', refs, 'name');
+    // avatar: only touch img.src when the resolved source actually changed (10Hz updates)
+    const avSrc = avatarSrcFor(p.sid, p.team);
+    if (refs.last.avatar !== avSrc) { refs.last.avatar = avSrc; refs.avatar.src = avSrc; }
+    const avTf = avatarTfFor(p.sid);
+    if (refs.last.avtf !== avTf) { refs.last.avtf = avTf; refs.avatar.style.transform = avTf; }
+    syncAvatarLines(refs.avatar, p.team, isDefaultAvatar(p.sid));
+    syncVcam(refs.avatar, p.sid);
+    setHtml(refs.hpnum, dead ? '' : String(hp), refs, 'hpn');
+
+    const hpW = hp + '%';
+    if (refs.last.hpw !== hpW) {
+      refs.last.hpw = hpW;
+      // bottom layout: vertical bar draining top→bottom; side layout: horizontal width
+      if (document.body.classList.contains('layout-bottom')) refs.fill.style.height = hpW;
+      else refs.fill.style.width = hpW;
+    }
+
+    let ic = fixedArmorHtml(st, hasC4);
+    setHtml(refs.armor, dead ? '' : ic, refs, 'icons');
+    setHtml(refs.kd, icon('kills') + '<span>' + (stats.kills || 0) + '</span>' + SKULL_SVG + '<span>' + (stats.deaths || 0) + '</span>', refs, 'kd');
+    setTxt(refs.money, '$' + (st.money || 0).toLocaleString(), refs, 'money');
+
+    const nadeSig = nades.map(n => n.name + ':' + (n.state === 'active' ? 1 : 0)).join(',') + '|' + dead + '|' + spriteReady;
+    if (refs.last.nadeSig !== nadeSig) {
+      refs.last.nadeSig = nadeSig;
+      refs.nades.innerHTML = dead ? '' : fixedNadesHtml(nades);
+    }
+    const weapSig = (shown ? shown.name + '|' + shown.state : 'none') + '|' + dead + '|' + spriteReady;
+    if (refs.last.weapSig !== weapSig) {
+      refs.last.weapSig = weapSig;
+      refs.weap.innerHTML = (dead || !shown) ? '' : weaponIcon(shown.name, weaponStateCls(shown));
+    }
+  }
+  for (const [sid, refs] of cache) {
+    if (!seen.has(sid)) { refs.root.remove(); cache.delete(sid); }
+  }
+  const orderSig = players.map(p => p.sid).join(',');
+  if (container.dataset.order !== orderSig) {
+    container.dataset.order = orderSig;
+    for (const p of players) { const r = cache.get(p.sid); if (r) container.appendChild(r.root); }
+  }
+}
+
+function renderPlayers(gsi) {
+  const all = gsi.allplayers || {};
+  const observed = gsi.player && gsi.player.steamid;
+  const ct = [], t = [];
+  for (const [sid, p] of Object.entries(all)) {
+    if (!p || typeof p !== 'object') continue;
+    (p.team === 'CT' ? ct : t).push({ sid, ...p });
+  }
+  const bySlot = (a, b) => (a.observer_slot ?? 99) - (b.observer_slot ?? 99); // slot 0 is valid (key "1")
+  updatePlayerPanel($('players-left'), prowCache.CT, ct.sort(bySlot), observed);
+  updatePlayerPanel($('players-right'), prowCache.T, t.sort(bySlot), observed);
+
+  // clutch spotlight (side layout only): a team with exactly 1 alive player gets an
+  // OB-style card at bottom-center; only that team's column (+ observed card) hides
+  const alive = arr => arr.filter(p => ((p.state || {}).health || 0) > 0);
+  const ctA = alive(ct), tA = alive(t);
+  const ctClutch = ct.length > 1 && ctA.length === 1;
+  const tClutch = t.length > 1 && tA.length === 1;
+  if (document.body.classList.contains('clutch-ct-on') !== ctClutch) document.body.classList.toggle('clutch-ct-on', ctClutch);
+  if (document.body.classList.contains('clutch-t-on') !== tClutch) document.body.classList.toggle('clutch-t-on', tClutch);
+  renderClutchCard('CT', ctClutch ? ctA[0] : null);
+  renderClutchCard('T', tClutch ? tA[0] : null);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+/* ---------- Clutch card: same structure/look as the observed card, built per side ---------- */
+function buildClutch(root) {
+  root.innerHTML =
+    '<div class="opcard"><div class="pfill cl-fill"></div></div>' +
+    '<div class="opbody">' +
+      '<span class="op-slot cl-slot"></span>' +
+      '<span class="prk cl-rk"></span>' +
+      '<div class="op-hp cl-hpnum"></div>' +
+      '<img class="opavatar cl-avatar" alt="">' +
+      '<div class="op-info">' +
+        '<div class="op-namerow"><span class="op-name cl-name"></span></div>' +
+        '<span class="pkd cl-kd"></span>' +
+      '</div>' +
+      '<div class="pmid">' +
+        '<div class="pweap cl-weap"></div>' +
+        '<div class="pequip"><div class="pnades cl-nades"></div><span class="parmor cl-icons"></span></div>' +
+      '</div>' +
+      '<div class="op-side">' +
+        '<span class="op-ammo cl-ammo"></span>' +
+        '<span class="op-money cl-money"></span>' +
+      '</div>' +
+    '</div>';
+  const q = s => root.querySelector(s);
+  const avatar = q('.cl-avatar');
+  avatar.onerror = function () { this.onerror = null; this.src = DEFAULT_AVATAR_SVG; if (this._lines) { this._lines.remove(); this._lines = null; } };
+  avatar.src = DEFAULT_AVATAR_SVG;
+  return { root, fill: q('.cl-fill'), slot: q('.cl-slot'), rk: q('.cl-rk'), hpnum: q('.cl-hpnum'),
+    avatar, name: q('.cl-name'), kd: q('.cl-kd'), weap: q('.cl-weap'), nades: q('.cl-nades'),
+    icons: q('.cl-icons'), ammo: q('.cl-ammo'), money: q('.cl-money'), last: {} };
+}
+const clutchRefs = { CT: null, T: null };
+function renderClutchCard(team, p) {
+  const el = $(team === 'CT' ? 'clutch-ct' : 'clutch-t');
+  if (!p) {
+    // keep the last rendered content so the fade-out animation has something to show;
+    // the container itself is invisible via opacity/visibility
+    el.classList.remove('show');
+    return;
+  }
+  let refs = clutchRefs[team];
+  if (!refs) refs = clutchRefs[team] = buildClutch(el);
+  el.classList.add('show');
+  el.classList.toggle('ct', team === 'CT');
+  el.classList.toggle('t', team !== 'CT');
+  const st = p.state || {};
+  const stats = p.match_stats || {};
+  const hp = Math.max(0, st.health || 0);
+  const dead = hp <= 0;
+  const weapons = Object.values(p.weapons || {});
+  const shown = pickShownWeapon(weapons);
+  const nades = weapons.filter(w => w.type === 'Grenade');
+  const hasC4 = weapons.some(w => w.name === 'weapon_c4');
+  el.classList.toggle('low', hp <= 25 && hp > 0);
+  setTxt(refs.slot, p.observer_slot != null ? String((p.observer_slot + 1) % 10) : '', refs, 'slot');
+  setRk(refs.rk, st, refs);
+  setTxt(refs.name, p.name || '?', refs, 'name');
+  const avSrc = avatarSrcFor(p.sid, p.team);
+  if (refs.last.avatar !== avSrc) { refs.last.avatar = avSrc; refs.avatar.src = avSrc; }
+  const avTf = 'translateX(-50%)' + (avatarTfFor(p.sid) ? ' ' + avatarTfFor(p.sid) : '');
+  if (refs.last.avtf !== avTf) { refs.last.avtf = avTf; refs.avatar.style.transform = avTf; }
+  syncAvatarLines(refs.avatar, p.team, isDefaultAvatar(p.sid));
+  syncVcam(refs.avatar, p.sid);
+  setHtml(refs.hpnum, dead ? '' : String(hp), refs, 'hpn');
+  const hpW = hp + '%';
+  if (refs.last.hpw !== hpW) { refs.last.hpw = hpW; refs.fill.style.width = hpW; }
+  setHtml(refs.icons, dead ? '' : fixedArmorHtml(st, hasC4), refs, 'icons');
+  const aw = weapons.find(w => w.state === 'active');
+  const ammoTxt = !dead && aw && aw.ammo_clip != null
+    ? String(aw.ammo_clip) + ' / ' + String(aw.ammo_reserve != null ? aw.ammo_reserve : 0) : '';
+  setHtml(refs.ammo, ammoTxt ? icon('bullets') + '<span>' + ammoTxt + '</span>' : '', refs, 'ammo');
+  setTxt(refs.money, '$' + (st.money || 0).toLocaleString(), refs, 'money');
+  setHtml(refs.kd, icon('kills') + '<span>' + (stats.kills || 0) + '</span>' + SKULL_SVG + '<span>' + (stats.deaths || 0) + '</span>', refs, 'kd');
+  const nadeSig = nades.map(n => n.name + ':' + (n.state === 'active' ? 1 : 0)).join(',') + '|' + spriteReady;
+  if (refs.last.nadeSig !== nadeSig) { refs.last.nadeSig = nadeSig; refs.nades.innerHTML = fixedNadesHtml(nades); }
+  const weapSig = (shown ? shown.name + '|' + shown.state : 'none') + '|' + spriteReady;
+  if (refs.last.weapSig !== weapSig) { refs.last.weapSig = weapSig; refs.weap.innerHTML = shown ? weaponIcon(shown.name, weaponStateCls(shown)) : ''; }
+}
+
+/* ---------- Observed player panel (bottom center, between team columns) ---------- */
+const opRefs = { last: {} };
+function renderObserved(gsi) {
+  const el = $('obsplayer');
+  const all = gsi.allplayers || {};
+  const sid = gsi.player && gsi.player.steamid;
+  const p = sid ? all[sid] : null;
+  const isTimeout = curPhase === 'timeout_ct' || curPhase === 'timeout_t';
+  if (!p || (isTimeout && !IS_EDIT)) { el.classList.remove('show'); return; }
+  el.classList.add('show');
+  el.classList.toggle('ct', p.team === 'CT');
+  el.classList.toggle('t', p.team !== 'CT');
+  const refs = opRefs;
+  const st = p.state || {};
+  const stats = p.match_stats || {};
+  const hp = Math.max(0, st.health || 0);
+  const dead = hp <= 0;
+  const weapons = Object.values(p.weapons || {});
+  const shown = pickShownWeapon(weapons);
+  const nades = weapons.filter(w => w.type === 'Grenade');
+  const hasC4 = weapons.some(w => w.name === 'weapon_c4');
+
+  el.classList.toggle('low', hp <= 25 && hp > 0);
+  setTxt($('op-slot'), p.observer_slot != null ? String((p.observer_slot + 1) % 10) : '', refs, 'slot');
+  setRk($('op-rk'), st, refs);
+  setTxt($('op-name'), p.name || '?', refs, 'name');
+  // avatar: only touch img.src when the resolved source actually changed
+  const opAvSrc = avatarSrcFor(sid, p.team);
+  if (refs.last.avatar !== opAvSrc) { refs.last.avatar = opAvSrc; $('op-avatar').src = opAvSrc; }
+  // per-player adjust composed onto the centering translate
+  const opAvTf = 'translateX(-50%)' + (avatarTfFor(sid) ? ' ' + avatarTfFor(sid) : '');
+  if (refs.last.avtf !== opAvTf) { refs.last.avtf = opAvTf; $('op-avatar').style.transform = opAvTf; }
+  syncAvatarLines($('op-avatar'), p.team, isDefaultAvatar(sid));
+  syncVcamOp($('op-avatar'), sid);
+  setHtml($('op-hpnum'), dead ? '' : String(hp), refs, 'hpn');
+  const hpW = hp + '%';
+  if (refs.last.hpw !== hpW) { refs.last.hpw = hpW; $('op-fill').style.width = hpW; }
+  let ic = fixedArmorHtml(st, hasC4);
+  setHtml($('op-icons'), dead ? '' : ic, refs, 'icons');
+  const aw = weapons.find(w => w.state === 'active');
+  const ammoTxt = !dead && aw && aw.ammo_clip != null
+    ? String(aw.ammo_clip) + ' / ' + String(aw.ammo_reserve != null ? aw.ammo_reserve : 0)
+    : '';
+  setHtml($('op-ammo'), ammoTxt ? icon('bullets') + '<span>' + ammoTxt + '</span>' : '', refs, 'ammo');
+  setTxt($('op-money'), '$' + (st.money || 0).toLocaleString(), refs, 'money');
+  setHtml($('op-kd'), icon('kills') + '<span>' + (stats.kills || 0) + '</span>' + SKULL_SVG + '<span>' + (stats.deaths || 0) + '</span>', refs, 'kd');
+  const nadeSig = nades.map(n => n.name + ':' + (n.state === 'active' ? 1 : 0)).join(',') + '|' + spriteReady;
+  if (refs.last.nadeSig !== nadeSig) { refs.last.nadeSig = nadeSig; $('op-nades').innerHTML = fixedNadesHtml(nades); }
+  const weapSig = (shown ? shown.name + '|' + shown.state : 'none') + '|' + spriteReady;
+  if (refs.last.weapSig !== weapSig) { refs.last.weapSig = weapSig; $('op-weap').innerHTML = shown ? weaponIcon(shown.name, weaponStateCls(shown)) : ''; }
+}
+
+/* ---------- Radar (calibration from LexoRadar, 1024px space) ---------- */
+const RADAR_CFG = {
+  de_ancient:  { x: 583.259, y: 428.922, sx: 0.198351, sy: -0.201082 },
+  de_anubis:   { x: 536.339, y: 638.079, sx: 0.190791, sy: -0.189939 },
+  de_cache:    { x: 361.724, y: 579.554, sx: 0.183093, sy: -0.176507 },
+  de_dust2:    { x: 563.134, y: 736.954, sx: 0.227832, sy: -0.227765 },
+  de_inferno:  { x: 426.514, y: 790.727, sx: 0.204169, sy: -0.204657 },
+  de_mirage:   { x: 645.720, y: 340.292, sx: 0.201185, sy: -0.201383 },
+  de_nuke:     { x: 473.128, y: 165.733, sx: 0.143761, sy: -0.147367, lower: { dx: 9, dy: 483, zCut: -495 } },
+  de_overpass: { x: 927.399, y: 343.822, sx: 0.192372, sy: -0.194275 },
+  de_train:    { x: 527.366, y: 511.815, sx: 0.215326, sy: -0.212993 },
+  de_vertigo:  { x: 971.554, y: 424.562, sx: 0.347082, sy: -0.345088, lower: { dx: 0, dy: 575, zCut: 11700 } }
+};
+function parseVec(s) {
+  if (Array.isArray(s)) return s.map(Number);
+  if (typeof s === 'string') return s.split(',').map(Number);
+  return null;
+}
+// multi-level maps (nuke/vertigo): the radar image stacks the lower level below the upper;
+// anything below zCut (per official overview verticalsections) is plotted onto the lower sub-image.
+function radarXY(cfg, pos) {
+  let px = cfg.x + pos[0] * cfg.sx, py = cfg.y + pos[1] * cfg.sy;
+  const L = cfg.lower;
+  if (L && pos.length > 2 && pos[2] < L.zCut) { px += L.dx; py += L.dy; }
+  return [px, py];
+}
+const RADAR_SIZE = 340;
+const RBASE = RADAR_SIZE / 1024;
+const RADAR_Z0 = 1.15; // default crop: slight margin trim, keeps the full playable area
+const DOT_SCALE = 1.3; // radar dots drawn 30% larger than zoom-compensated size
+
+/* custom map packs from the app (data/custom-maps): radar config + image served by the
+   HUD server, merged over the built-in RADAR_CFG. Retried (debounced) when GSI reports
+   a map we don't know yet, so packs added after page load get picked up. */
+const RADAR_CUSTOM = {}; // mapName -> true → image at /custom-radars/<map>.png
+let customRadarRetryAt = 0;
+async function loadCustomRadars() { /* Replay uses bundled radar assets. */ }
+loadCustomRadars();
+
+/* stable radar dots: one element per steamid, updated in place */
+const rdotCache = new Map();
+/* per-player multi-level state: locked level + fade bookkeeping (nuke/vertigo) */
+const rdotLevel = new Map();
+function buildRdot() {
+  const root = document.createElement('div');
+  root.className = 'rdot';
+  root.innerHTML = '<div class="rcone"></div><div class="rcore"></div>';
+  const q = s => root.querySelector(s);
+  return { root, cone: q('.rcone'), core: q('.rcore'), last: {} };
+}
+let radarMapName = '';
+
+/* analyze the radar image's content bbox (alpha) so the map is centered and zoom-fitted */
+const radarBoxCache = {}; // mapName -> {cx, cy, w, h} in 1024 space
+function analyzeRadarBox(img, mapName) {
+  try {
+    const S = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, S, S);
+    const d = ctx.getImageData(0, 0, S, S).data;
+    let minX = S, maxX = -1, minY = S, maxY = -1;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      if (d[(y * S + x) * 4 + 3] > 24) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < 0) return;
+    const k = 1024 / S;
+    radarBoxCache[mapName] = { cx: (minX + maxX) / 2 * k, cy: (minY + maxY) / 2 * k, w: (maxX - minX + 1) * k, h: (maxY - minY + 1) * k };
+    if (lastGsi && radarMapName === mapName) renderRadar(lastGsi);
+  } catch (e) { /* keep fallback view */ }
+}
+
+function renderRadar(gsi) {
+  const radar = $('radar');
+  const mapName = (gsi.map && gsi.map.name) || '';
+  const cfg = RADAR_CFG[mapName];
+  if (!cfg) {
+    radar.classList.remove('show');
+    // unknown map: maybe a custom pack was added after page load — refetch (5s debounce)
+    const nowTs = Date.now();
+    if (mapName && nowTs - customRadarRetryAt > 5000) { customRadarRetryAt = nowTs; loadCustomRadars(); }
+    return;
+  }
+  radar.classList.add('show');
+  if (radarMapName !== mapName) { radarMapName = mapName; nadeTrails.clear(); nadeBursts.clear(); nadeFires.clear(); nadeDone.clear(); nadeTeams.clear(); rdotLevel.clear(); }
+  const img = $('radar-img');
+  const src = RADAR_CUSTOM[mapName] ? '/custom-radars/' + mapName + '.png' : 'assets/radars/' + mapName + '.png';
+  if (!img.src.endsWith(src)) {
+    // 404 (e.g. missing custom map image): hide just the map image — the dot/nade
+    // layers keep rendering; onload restores visibility when a map loads again
+    img.onload = () => { img.style.display = ''; analyzeRadarBox(img, mapName); };
+    img.onerror = () => { img.style.display = 'none'; };
+    img.src = src;
+  }
+
+  const observed = gsi.player && gsi.player.steamid;
+  const all = gsi.allplayers || {};
+  const pts = [];
+  for (const [sid, p] of Object.entries(all)) {
+    if (!p || typeof p !== 'object') continue;
+    const pos = parseVec(p.position);
+    if (!pos) continue;
+    const dead = !(p.state && p.state.health > 0);
+    if (dead) continue; // dead players: no dot at all (GSI makes their position follow spectate target)
+    const [px, py] = radarXY(cfg, pos);
+    pts.push({
+      sid,
+      px, py,
+      ux: cfg.x + pos[0] * cfg.sx, // raw upper-level projection (for cross-fade)
+      uy: cfg.y + pos[1] * cfg.sy,
+      z: pos.length > 2 ? pos[2] : null,
+      deg: Math.atan2((parseVec(p.forward) || [0, 1, 0])[0], (parseVec(p.forward) || [0, 1, 0])[1]) * 180 / Math.PI,
+      hasC4: Object.values(p.weapons || {}).some(w => w.name === 'weapon_c4'),
+      side: p.team === 'CT' ? 'ct' : 't',
+      slot: p.observer_slot != null ? (p.observer_slot + 1) % 10 : ''
+    });
+  }
+
+  // Default view: center + zoom-fit the map image's content bbox (fallback: image center)
+  const box = radarBoxCache[mapName];
+  let z = RADAR_Z0, cx = 512, cy = 512;
+  if (box) {
+    cx = box.cx; cy = box.cy;
+    z = Math.min(RADAR_SIZE * 0.98 / (box.w * RBASE), RADAR_SIZE * 0.98 / (box.h * RBASE), 1.45);
+    if (z < 1.0) z = 1.0;
+  }
+  let tx = RADAR_SIZE / 2 - cx * RBASE * z, ty = RADAR_SIZE / 2 - cy * RBASE * z;
+  { // keep the image covering the whole panel
+    const minT = RADAR_SIZE - 1024 * RBASE * z;
+    tx = Math.max(minT, Math.min(0, tx));
+    ty = Math.max(minT, Math.min(0, ty));
+  }
+  // Clutch zoom: when only 2-5 players alive, zoom into their bounding box
+  const alive = pts;
+  if (alive.length >= 2 && alive.length <= 5) {
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const p of alive) {
+      if (p.px < minX) minX = p.px; if (p.px > maxX) maxX = p.px;
+      if (p.py < minY) minY = p.py; if (p.py > maxY) maxY = p.py;
+    }
+    const pad = 140;
+    minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+    const zz = Math.min(RADAR_SIZE * 0.9 / ((maxX - minX) * RBASE), RADAR_SIZE * 0.9 / ((maxY - minY) * RBASE), 3.2);
+    if (zz > z) {
+      z = zz;
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      tx = RADAR_SIZE / 2 - cx * RBASE * z;
+      ty = RADAR_SIZE / 2 - cy * RBASE * z;
+      const minT = RADAR_SIZE - 1024 * RBASE * z;
+      tx = Math.max(minT, Math.min(0, tx));
+      ty = Math.max(minT, Math.min(0, ty));
+    }
+  }
+  $('radar-inner').style.transform =
+    'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + (RBASE * z).toFixed(5) + ')';
+  const inv = DOT_SCALE / z;
+
+  const dotsBox = $('radar-dots');
+  const seen = new Set();
+  // Multi-level maps: each player is locked to ONE level via hysteresis (never two
+  // dots for a standing player). On an actual level change, a ghost dot at the old
+  // position fades out over ~0.3s while the new-level dot fades in.
+  const L = cfg.lower;
+  const HYS = 25;      // z-units of hysteresis around zCut to prevent flapping
+  const FADE_MS = 320; // cross-fade duration on level switch
+  const nowMs = performance.now();
+  const entries = [];
+  for (const p of pts) {
+    if (L && p.z != null) {
+      let st = rdotLevel.get(p.sid);
+      let lvl = st ? st.lvl : (p.z < L.zCut ? 'lo' : 'up');
+      if (lvl === 'up' && p.z < L.zCut - HYS) lvl = 'lo';
+      else if (lvl === 'lo' && p.z > L.zCut + HYS) lvl = 'up';
+      let switchT = st ? st.switchT : 0;
+      let ghost = st && st.ghost && st.ghost.until > nowMs ? st.ghost : null;
+      let switched = false;
+      if (st && st.lvl !== lvl) {
+        switchT = nowMs;
+        switched = true;
+        ghost = { px: st.lastPx, py: st.lastPy, until: nowMs + FADE_MS + 120 };
+      }
+      const px = lvl === 'lo' ? p.ux + L.dx : p.ux;
+      const py = lvl === 'lo' ? p.uy + L.dy : p.uy;
+      rdotLevel.set(p.sid, { lvl, switchT, ghost, lastPx: px, lastPy: py });
+      const op = switchT ? Math.min(1, (nowMs - switchT) / FADE_MS) : 1;
+      entries.push({ p, key: p.sid, px, py, op, teleport: switched });
+      if (ghost) entries.push({ p, key: p.sid + '#gh', px: ghost.px, py: ghost.py, op: 0, spawnVisible: true });
+    } else {
+      entries.push({ p, key: p.sid, px: p.px, py: p.py, op: 1 });
+    }
+  }
+  for (const e of entries) {
+    const p = e.p;
+    seen.add(e.key);
+    let refs = rdotCache.get(e.key);
+    const isNew = !refs;
+    if (isNew) { refs = buildRdot(); rdotCache.set(e.key, refs); dotsBox.appendChild(refs.root); }
+    refs.root.className = 'rdot ' + p.side + (p.sid === observed ? ' observed' : '') + (p.hasC4 ? ' has-c4' : '');
+    if (e.teleport && !isNew) {
+      // level switch: jump to the new position instantly (disable the position
+      // transition for this frame) so the dot never slides between levels;
+      // the fade-in is done purely through opacity
+      refs.root.style.transition = 'none';
+      refs.root.style.left = e.px.toFixed(1) + 'px';
+      refs.root.style.top = e.py.toFixed(1) + 'px';
+      refs.root.style.opacity = '0';
+      void refs.root.offsetWidth; // force reflow: apply the jump immediately
+      refs.root.style.transition = 'left 0.12s linear, top 0.12s linear, opacity 0.3s';
+    }
+    refs.root.style.left = e.px.toFixed(1) + 'px';
+    refs.root.style.top = e.py.toFixed(1) + 'px';
+    refs.root.style.transform = 'scale(' + inv.toFixed(3) + ')';
+    refs.root.style.opacity = e.op.toFixed(2);
+    // shortest-path rotation: unwrap atan2's [-180,180] jump (179 -> -179 is a
+    // 2-degree turn, not a 358-degree spin) so the CSS transition never whips around.
+    // Skip non-finite deg (malformed forward vector) — a NaN would poison the
+    // accumulator and freeze the arrow permanently.
+    if (isFinite(p.deg)) {
+      let sd = refs.last.deg;
+      if (sd == null) sd = p.deg;
+      else sd += (((p.deg - (sd % 360)) + 540) % 360) - 180;
+      refs.last.deg = sd;
+      refs.cone.style.transform = 'rotate(' + sd.toFixed(1) + 'deg)';
+    }
+    if (isNew) {
+      if (e.spawnVisible) {
+        // ghost of a level switch: appear at the old position fully visible,
+        // then fade out once the opacity transition is armed
+        refs.root.style.opacity = '1';
+      }
+      // no position transition on spawn; enable smooth 10Hz interpolation afterwards
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        refs.root.style.transition = 'left 0.12s linear, top 0.12s linear, opacity 0.3s';
+        if (e.spawnVisible) refs.root.style.opacity = '0';
+      }));
+    }
+    if (refs.last.slot !== p.slot) { refs.last.slot = p.slot; refs.core.textContent = p.slot; }
+  }
+  for (const [sid, refs] of rdotCache) {
+    if (!seen.has(sid)) { refs.root.remove(); rdotCache.delete(sid); }
+  }
+  for (const sid of rdotLevel.keys()) {
+    if (!seen.has(sid)) rdotLevel.delete(sid);
+  }
+
+  // bomb marker (planted/defused/exploded has world position)
+  const b = gsi.bomb;
+  const bEl = $('rbomb');
+  const bPos = b && b.position ? parseVec(b.position) : null;
+  if (bPos && (b.state === 'planted' || b.state === 'defused' || b.state === 'exploded')) {
+    const [bpx, bpy] = radarXY(cfg, bPos);
+    bEl.style.left = bpx.toFixed(1) + 'px';
+    bEl.style.top = bpy.toFixed(1) + 'px';
+    bEl.style.transform = 'scale(' + inv.toFixed(3) + ')';
+    bEl.classList.add('show');
+  } else {
+    bEl.classList.remove('show');
+  }
+
+  renderGrenades(gsi, cfg, inv);
+}
+
+/* ---------- Radar grenades: flight trails + effect zones ---------- */
+/* allgrenades types: smoke | firebomb | flashbang | frag | decoy.
+   effecttime > 0 means the grenade has detonated/deployed. */
+const GNADE_ICON = { smoke: 'smokegrenade', flashbang: 'flashbang', frag: 'hegrenade', decoy: 'decoy', firebomb: 'inferno', inferno: 'inferno', molotov: 'inferno', incgrenade: 'inferno', incendiary: 'inferno' };
+const GNADE_COLOR = { smoke: '#cfd8dc', flashbang: '#ffd54f', frag: '#ff5252', decoy: '#90a4ae', firebomb: '#ff7043', inferno: '#ff7043', molotov: '#ff7043', incgrenade: '#ff7043', incendiary: '#ff7043' };
+const FIRE_NADE_TYPES = new Set(['firebomb', 'molotov', 'incgrenade', 'incendiary', 'inferno']);
+const nadeTrails = new Map(); // gid -> { pts: [[px,py],...], type } (1024-space)
+const nadeBursts = new Map(); // gid -> { x, y, type, t0 } — detonation synthesized when a flying nade vanishes
+const nadeFires = new Map(); // gid -> { x, y, t0 } — synthesized burning zone for molotov/incendiary
+const nadeDone = new Set(); // gids that already detonated — never burst twice
+const nadeTeams = new Map(); // gid -> 'ct'/'t', latched on first sight: the smoke cloud
+// must keep its team outline even after the thrower dies (GSI stops resolving the owner)
+let nadeRound = -1;
+// layered flame renderer: gradient body + 3 flickering tongues, drawn into
+// per-gid CACHED SVG nodes (attribute updates only). The previous string-HTML
+// approach rebuilt the entire SVG every frame while a fire burned — the flicker
+// params include performance.now(), so the string diff never matched — which
+// re-parsed the SVG and restarted every animation in it 10-20x per second.
+function gidSeed(gid) { let h = 0; const s = String(gid); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff; return h / 65535; }
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const nadeFxCache = new Map(); // 'fire:'+gid -> {g,body,tongues} | 'burst:'+gid -> {g,ring,stroke}
+function makeFireFx() {
+  const g = document.createElementNS(SVG_NS, 'g');
+  const body = document.createElementNS(SVG_NS, 'circle');
+  body.setAttribute('class', 'rg-fire');
+  g.appendChild(body);
+  const tongues = [];
+  for (let i = 0; i < 3; i++) { tongues.push(document.createElementNS(SVG_NS, 'circle')); g.appendChild(tongues[i]); }
+  return { g, body, tongues };
+}
+function makeBurstFx() {
+  const g = document.createElementNS(SVG_NS, 'g');
+  const ring = document.createElementNS(SVG_NS, 'circle');
+  ring.setAttribute('class', 'rg-ring');
+  g.appendChild(ring);
+  return { g, ring, stroke: '' };
+}
+function updateFireFx(fx, x, y, r, seed, t, fade) {
+  fx.body.setAttribute('cx', x.toFixed(1));
+  fx.body.setAttribute('cy', y.toFixed(1));
+  fx.body.setAttribute('r', (r * (0.96 + 0.07 * Math.sin(t * 9 + seed * 20))).toFixed(1));
+  fx.body.setAttribute('opacity', (0.92 * fade).toFixed(2));
+  for (let i = 0; i < 3; i++) {
+    const a = seed * 6.283 + t * (1.2 + i * 0.55) + i * 2.09; // slow drift around the core
+    const d = r * 0.36 * (0.7 + 0.3 * Math.sin(t * 5 + i * 2.1 + seed * 9));
+    const tr = r * (0.30 + 0.13 * Math.sin(t * 11 + i * 1.7 + seed * 13)); // licking size flicker
+    const op = (0.55 + 0.3 * Math.sin(t * 13 + i * 2.3 + seed * 7)) * fade;
+    const c = fx.tongues[i];
+    c.setAttribute('cx', (x + Math.cos(a) * d).toFixed(1));
+    c.setAttribute('cy', (y + Math.sin(a) * d).toFixed(1));
+    c.setAttribute('r', tr.toFixed(1));
+    c.setAttribute('fill', 'rgba(' + (i === 1 ? '255,214,96' : '255,122,32') + ',' + op.toFixed(2) + ')');
+  }
+}
+let nadeSvgHtml = '';
+function renderGrenades(gsi, cfg, inv) {
+  const svg = $('rnades');
+  if (!svg) return;
+  const nades = gsi.allgrenades || gsi.grenades || {}; // CS2 sends "grenades"; "allgrenades" kept for compat
+  const sx = Math.abs(cfg.sx); // world-unit -> 1024px factor for effect radii
+  const live = !gsi.round || gsi.round.phase === 'live'; // only synthesize bursts mid-round
+  const now = performance.now();
+  // new round → drop all trails/bursts/fires from the previous round
+  const roundNum = gsi.map && typeof gsi.map.round === 'number' ? gsi.map.round : null;
+  if (roundNum !== null && roundNum !== nadeRound) {
+    nadeRound = roundNum;
+    nadeTrails.clear(); nadeBursts.clear(); nadeFires.clear(); nadeDone.clear(); nadeTeams.clear();
+    for (const fx of nadeFxCache.values()) fx.g.remove();
+    nadeFxCache.clear();
+  }
+  const seen = new Set();
+  const fxSeen = new Set();
+  let html = '';
+  for (const [gid, g] of Object.entries(nades)) {
+    const pos = parseVec(g.position);
+    if (!pos) continue;
+    seen.add(gid);
+    if (nadeDone.has(gid)) continue; // already detonated — ignore the lingering entity
+    const [px, py] = radarXY(cfg, pos);
+    const et = parseFloat(g.effecttime) || 0;
+    const type = g.type || 'smoke';
+    const col = GNADE_COLOR[type] || '#fff';
+    // owner team for team-colored outlines: latch it the first time we can resolve it,
+    // then reuse the cached value (a dead thrower no longer resolves reliably)
+    const owner = g.owner && (gsi.allplayers || {})[g.owner];
+    let tm = owner && owner.team === 'CT' ? 'ct' : owner && owner.team === 'T' ? 't' : '';
+    if (tm) nadeTeams.set(gid, tm); else tm = nadeTeams.get(gid) || '';
+    if (type === 'inferno' || (FIRE_NADE_TYPES.has(type) && et > 0)) {
+      // burning zone: molotov/incgrenade becomes an "inferno" entity on impact
+      nadeTrails.delete(gid);
+      if (!nadeFires.has(gid)) nadeFires.set(gid, { x: px, y: py, t0: now }); // pin first-impact time
+      const fkey = 'fire:' + gid;
+      fxSeen.add(fkey);
+      let fx = nadeFxCache.get(fkey);
+      if (!fx) { fx = makeFireFx(); nadeFxCache.set(fkey, fx); svg.appendChild(fx.g); }
+      updateFireFx(fx, px, py, 200 * sx, gidSeed(gid), now / 1000, 1);
+    } else if (et > 0 && type === 'smoke') {
+      // deployed smoke cloud
+      nadeTrails.delete(gid);
+      const r = 144 * sx; // smoke radius ~144 world units
+      html += '<circle class="rg-smoke' + (tm ? ' ' + tm : '') + '" cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="' + r.toFixed(1) + '"/>';
+    } else if (et > 0 && (type === 'frag' || type === 'flashbang')) {
+      // rare: engine reports detonation briefly — hand off to burst animation
+      nadeTrails.delete(gid);
+      nadeDone.add(gid); nadeTeams.delete(gid);
+      if (!nadeBursts.has(gid)) nadeBursts.set(gid, { x: px, y: py, type, t0: now });
+    } else {
+      // in flight: record trail, draw head icon
+      let tr = nadeTrails.get(gid);
+      if (!tr) { tr = { pts: [], type, t0: now }; nadeTrails.set(gid, tr); }
+      tr.type = type;
+      // fuse watchdog: frag/flash entities linger in GSI briefly after exploding.
+      // Once past the fuse time, detonate immediately instead of waiting for the entity to vanish.
+      const lt = parseFloat(g.lifetime);
+      const fuseMs = type === 'frag' ? 1550 : type === 'flashbang' ? 1400 : 0;
+      if (fuseMs && ((!isNaN(lt) && lt * 1000 >= fuseMs) || (now - tr.t0 >= fuseMs))) {
+        nadeTrails.delete(gid);
+        nadeDone.add(gid); nadeTeams.delete(gid);
+        if (!nadeBursts.has(gid)) nadeBursts.set(gid, { x: px, y: py, type, t0: now });
+      } else {
+      const last = tr.pts[tr.pts.length - 1];
+      if (!last || Math.hypot(px - last[0], py - last[1]) > 6) {
+        tr.pts.push([px, py]);
+        if (tr.pts.length > 14) tr.pts.shift();
+      }
+      if (tr.pts.length > 1) {
+        html += '<polyline class="rg-trail" stroke="' + col + '" points="' +
+          tr.pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') + '"/>';
+      }
+      const ic = GNADE_ICON[type];
+      const wb = ic && WB[ic];
+      if (ic && wb) {
+        const wpx = 22 * inv, hpx = wpx * wb.h / wb.w; // weapon svgs are wide silhouettes
+        html += '<use class="rg-ic" href="#w-' + ic + '" x="' + (px - wpx / 2).toFixed(1) + '" y="' + (py - hpx / 2).toFixed(1) +
+          '" width="' + wpx.toFixed(1) + '" height="' + hpx.toFixed(1) + '" style="color:' + col + '"/>';
+      }
+      }
+    }
+  }
+  // a flying nade that vanished = detonated (frag/flash/molotov never report effecttime)
+  for (const [gid, tr] of nadeTrails) {
+    if (!seen.has(gid)) {
+      if (live && tr.pts.length) {
+        const p = tr.pts[tr.pts.length - 1];
+        nadeDone.add(gid); nadeTeams.delete(gid);
+        if (FIRE_NADE_TYPES.has(tr.type)) {
+          // molotov/incendiary: keep a burning zone at the impact point (~7s)
+          nadeFires.set(gid, { x: p[0], y: p[1], t0: now });
+        } else {
+          nadeBursts.set(gid, { x: p[0], y: p[1], type: tr.type, t0: now });
+        }
+      }
+      nadeTrails.delete(gid);
+    }
+  }
+  // active bursts: expanding ring with ease-out (fast pop, short tail)
+  for (const [gid, b] of nadeBursts) {
+    const dur = b.type === 'frag' ? 550 : b.type === 'flashbang' ? 420 : 650; // explosions feel instant
+    const age = now - b.t0;
+    if (age > dur) { nadeBursts.delete(gid); continue; }
+    const t01 = age / dur;
+    const prog = 1 - (1 - t01) * (1 - t01); // ease-out quad
+    const base = (b.type === 'frag' ? 300 : b.type === 'flashbang' ? 220 : 150) * sx;
+    const r = base * (0.3 + 0.7 * prog);
+    const bkey = 'burst:' + gid;
+    fxSeen.add(bkey);
+    let bx = nadeFxCache.get(bkey);
+    if (!bx) { bx = makeBurstFx(); nadeFxCache.set(bkey, bx); svg.appendChild(bx.g); }
+    bx.ring.setAttribute('cx', b.x.toFixed(1));
+    bx.ring.setAttribute('cy', b.y.toFixed(1));
+    bx.ring.setAttribute('r', r.toFixed(1));
+    bx.ring.setAttribute('opacity', ((1 - t01) * 0.9).toFixed(2));
+    const bstroke = GNADE_COLOR[b.type] || '#fff';
+    if (bx.stroke !== bstroke) { bx.stroke = bstroke; bx.ring.setAttribute('stroke', bstroke); }
+  }
+  // burning zones: layered flickering flame, 7s lifetime, fades out at the end
+  for (const [gid, f] of nadeFires) {
+    const age = now - f.t0;
+    if (age > 7000) { nadeFires.delete(gid); continue; }
+    if (seen.has(gid)) continue; // already drawn above as a live inferno entity
+    const fade = age > 5200 ? (7000 - age) / 1800 : 1;
+    const fkey2 = 'fire:' + gid;
+    fxSeen.add(fkey2);
+    let fx2 = nadeFxCache.get(fkey2);
+    if (!fx2) { fx2 = makeFireFx(); nadeFxCache.set(fkey2, fx2); svg.appendChild(fx2.g); }
+    updateFireFx(fx2, f.x, f.y, 200 * sx, gidSeed(gid), now / 1000, fade);
+  }
+  // static layer (trails / smoke clouds / flying heads): string-diffed. Fires and
+  // bursts no longer bust this cache, so rewrites only happen on trail changes.
+  if (html !== nadeSvgHtml) { nadeSvgHtml = html; svg.innerHTML = html; }
+  // sweep stale fx nodes; re-append survivors (an innerHTML rewrite detaches them,
+  // and they must paint above the static layer)
+  for (const [key, fx] of nadeFxCache) {
+    if (!fxSeen.has(key)) { fx.g.remove(); nadeFxCache.delete(key); }
+    else if (fx.g.parentNode !== svg) svg.appendChild(fx.g);
+  }
+}
+
+/* ---------- Tactical Timeout ---------- */
+const WEAPON_PRICES = {
+  ak47: 2700, m4a1: 3100, m4a1_silencer: 2900, aug: 3300, sg556: 3000, famas: 2050, galilar: 1800,
+  awp: 4750, ssg08: 1700, g3sg1: 5000, scar20: 5000, mp5sd: 1500, mp7: 1500, mp9: 1250, mac10: 1050,
+  ump45: 1200, p90: 2350, bizon: 1400, nova: 1050, xm1014: 2000, mag7: 1300, sawedoff: 1100,
+  m249: 5200, negev: 1700, glock: 200, usp_silencer: 200, hkp2000: 200, p250: 300, fiveseven: 500,
+  tec9: 500, cz75a: 500, elite: 300, deagle: 700, revolver: 600, taser: 200,
+  flashbang: 200, smokegrenade: 300, hegrenade: 300, molotov: 400, incgrenade: 600, decoy: 50
+};
+function playerEquipValue(p) {
+  const st = p.state || {};
+  if ((st.health || 0) <= 0) return 0;
+  let v = 0;
+  for (const w of Object.values(p.weapons || {})) {
+    const id = (w.name || '').replace(/^weapon_/, '');
+    v += WEAPON_PRICES[id] || 0;
+  }
+  if (st.armor > 0) v += st.helmet ? 1000 : 650;
+  if (st.defusekit) v += 400;
+  return v;
+}
+function lossBonus(consecutive) {
+  return Math.min(3400, 1400 + 500 * (consecutive || 0));
+}
+function renderTimeout(gsi) {
+  const isTimeout = curPhase === 'timeout_ct' || curPhase === 'timeout_t' || techPaused;
+  const el = $('timeout');
+  if (!isTimeout) { el.classList.remove('show'); return; }
+  el.classList.add('show');
+
+  const calledBy = curPhase === 'timeout_ct' ? 'ct' : curPhase === 'timeout_t' ? 't' : '';
+  const title = $('to-title');
+  title.className = calledBy || 'tech';
+  title.textContent = techPaused ? 'TECHNICAL PAUSE' : 'TACTICAL TIMEOUT · ' + (calledBy === 'ct' ? 'CT' : 'T');
+
+  const map = gsi.map || {};
+  $('to-score-ct').textContent = (map.team_ct && map.team_ct.score) || 0;
+  $('to-score-t').textContent = (map.team_t && map.team_t.score) || 0;
+  $('to-mapname').textContent = (map.name || '').replace(/^de_/i, '').toUpperCase();
+
+  const { swapped } = detectSides(gsi);
+  renderTimeoutTeam('ct', map.team_ct || {}, swapped ? teamsInfo.right : teamsInfo.left, gsi);
+  renderTimeoutTeam('t', map.team_t || {}, swapped ? teamsInfo.left : teamsInfo.right, gsi);
+}
+function renderTimeoutTeam(side, teamGsi, teamInfo, gsi) {
+  const all = gsi.allplayers || {};
+  const players = Object.values(all).filter(p => p && typeof p === 'object' && p.team === side.toUpperCase())
+    .sort((a, b) => (a.observer_slot ?? 99) - (b.observer_slot ?? 99));
+  const equip = players.reduce((s, p) => s + playerEquipValue(p), 0);
+  const timeouts = teamGsi.timeouts_remaining != null ? teamGsi.timeouts_remaining : 2;
+  const bonus = lossBonus(teamGsi.consecutive_round_losses);
+
+  let pips = '';
+  for (let i = 0; i < 3; i++) pips += '<span class="to-pip' + (i < timeouts ? ' on' : '') + '"></span>';
+
+  const logo = teamInfo && teamInfo.logo
+    ? '<img class="to-logo" src="/logos/' + encodeURIComponent(teamInfo.logo) + '" onerror="logoFail(this,\'' + side + '\')">'
+    : '<div class="to-logo"></div>';
+
+  const rows = players.map(p => {
+    const st = p.state || {};
+    const ms = p.match_stats || {};
+    const dead = (st.health || 0) <= 0;
+    const weapons = Object.values(p.weapons || {});
+    // fixed gun slots: primary (rifle/sniper/smg/...) + pistol
+    const guns = weapons.filter(w => w.type !== 'Grenade' && w.type !== 'Knife' && w.type !== 'C4');
+    const primary = guns.find(w => w.type !== 'Pistol') || null;
+    const pistol = guns.find(w => w.type === 'Pistol') || null;
+    // fixed nade slots: smoke / flash / fire / he / decoy
+    const nadeSlots = { smokegrenade: null, flashbang: null, fire: null, hegrenade: null, decoy: null };
+    for (const w of weapons) {
+      if (w.type !== 'Grenade') continue;
+      const id = (w.name || '').replace(/^weapon_/, '');
+      const key = (id === 'molotov' || id === 'incgrenade') ? 'fire' : id;
+      if (key in nadeSlots && !nadeSlots[key]) nadeSlots[key] = w.name;
+    }
+    const nadeHtml = Object.values(nadeSlots)
+      .map(n => '<span class="to-pnade-slot">' + (n ? weaponIcon(n) : '') + '</span>').join('');
+    const armorIc = st.armor > 0 ? icon(st.helmet ? 'helmet' : 'armor') : '';
+    const kitIc = st.defusekit ? icon('defuse') : '';
+    const gunHtml =
+      '<span class="to-gun-slot pistol">' + (pistol && !dead ? weaponIcon(pistol.name) : '') + '</span>' +
+      '<span class="to-gun-slot primary">' + (primary && !dead ? weaponIcon(primary.name) : '') + '</span>';
+    const kd = '<span class="to-pkd">' + icon('kills') + '<span>' + (ms.kills || 0) + '</span>' +
+      SKULL_SVG + '<span>' + (ms.deaths || 0) + '</span></span>';
+    return '<div class="to-prow' + (dead ? ' dead' : '') + '">' +
+      '<span class="to-pname">' + esc(p.name || '?') + '</span>' + kd +
+      '<span class="to-picons"><span class="to-ic-slot">' + armorIc + '</span><span class="to-ic-slot">' + kitIc + '</span></span>' +
+      '<span class="to-pnades">' + nadeHtml + '</span>' +
+      '<span class="to-pweaps">' + gunHtml + '</span>' +
+      '<span class="to-pmoney">$' + (st.money || 0) + '</span>' +
+    '</div>';
+  }).join('');
+
+  $('to-team-' + side).innerHTML =
+    '<div class="to-teamhead">' + logo +
+      '<span class="to-teamname">' + esc((teamInfo && teamInfo.name) || teamGsi.name || side.toUpperCase()) + '</span>' +
+      '<span class="to-hstats">' +
+        '<span class="to-hstat"><span class="label">Equipment</span><b>$' + equip.toLocaleString() + '</b></span>' +
+        '<span class="to-hstat"><span class="label">Loss Bonus</span><b>$' + bonus.toLocaleString() + '</b></span>' +
+        '<span class="to-hstat"><span class="label">Timeouts</span><span class="to-pips">' + pips + '</span></span>' +
+      '</span>' +
+    '</div>' +
+    rows;
+}
+
+/* ---------- Freezetime economy panels (utility count + team money + loss bonus) ---------- */
+const fzRefs = { last: {} };
+function renderFreezetime(gsi) {
+  const show = (curPhase === 'freezetime' && !techPaused) || IS_EDIT;
+  $('fz-ct').classList.toggle('show', show);
+  $('fz-t').classList.toggle('show', show);
+  if (!show) return;
+  const all = gsi.allplayers || {};
+  const map = gsi.map || {};
+  for (const side of ['ct', 't']) {
+    const team = side.toUpperCase();
+    let smoke = 0, flash = 0, fire = 0, he = 0, money = 0;
+    for (const p of Object.values(all)) {
+      if (!p || typeof p !== 'object') continue;
+      if (p.team !== team) continue;
+      money += (p.state && p.state.money) || 0;
+      for (const w of Object.values(p.weapons || {})) {
+        if (w.type !== 'Grenade') continue;
+        const id = (w.name || '').replace(/^weapon_/, '');
+        if (id === 'smokegrenade') smoke++;
+        else if (id === 'flashbang') flash++;
+        else if (id === 'molotov' || id === 'incgrenade') fire++;
+        else if (id === 'hegrenade') he++;
+      }
+    }
+    const tg = map['team_' + side] || {};
+    const bonus = lossBonus(tg.consecutive_round_losses);
+    const pips = Math.max(0, Math.min(4, tg.consecutive_round_losses || 0));
+    const sig = [smoke, flash, fire, he, money, bonus, pips, spriteReady].join(',');
+    if (fzRefs.last[side] === sig) continue;
+    fzRefs.last[side] = sig;
+    $('fz-nades-' + side).innerHTML =
+      '<span class="fz-item">' + weaponIcon('weapon_smokegrenade') + '<span>x' + smoke + '</span></span>' +
+      '<span class="fz-item">' + weaponIcon('weapon_flashbang') + '<span>x' + flash + '</span></span>' +
+      '<span class="fz-item">' + weaponIcon('weapon_molotov') + '<span>x' + fire + '</span></span>' +
+      '<span class="fz-item">' + weaponIcon('weapon_hegrenade') + '<span>x' + he + '</span></span>';
+    $('fz-money-' + side).textContent = '$' + money.toLocaleString();
+    $('fz-bonus-' + side).textContent = '$' + bonus.toLocaleString();
+    let ph = '';
+    for (let i = 0; i < 4; i++) ph += '<span class="fz-pip' + (i < pips ? ' on' : '') + '"></span>';
+    $('fz-pips-' + side).innerHTML = ph;
+  }
+}
+
+/* ---------- Round history (freezetime, won rounds per half) ---------- */
+const rhRefs = { last: '' };
+function renderRoundHist(gsi) {
+  const el = $('roundhist');
+  const show = curPhase === 'freezetime' || IS_EDIT;
+  el.classList.toggle('show', show);
+  if (!show) { rhRefs.last = ''; return; }
+  const map = gsi.map || {};
+  const wins = map.round_wins || {};
+  const curRound = (map.round || 0) + 1; // 1-based round in progress
+  const isOT = curRound > 24;
+  // regulation: 12-cell half view; overtime (MR3): 6-cell view of the current OT period
+  const halfBase = isOT ? 24 + Math.floor((curRound - 25) / 6) * 6 : (curRound > 12 ? 12 : 0);
+  const cellCount = isOT ? 6 : 12;
+  const sig = JSON.stringify(wins) + '|' + curRound + '|' + spriteReady;
+  if (rhRefs.last === sig) return;
+  rhRefs.last = sig;
+  let html = '<div class="rh-title">ROUND HISTORY</div>';
+  for (const side of ['ct', 't']) {
+    let cells = '';
+    for (let i = 0; i < cellCount; i++) {
+      const rn = halfBase + i + 1;
+      const res = wins[String(rn)];
+      const winSide = res ? (res.indexOf('ct_win') === 0 ? 'ct' : 't') : null;
+      let cls = 'rh-mark';
+      let inner = '';
+      if (winSide === side) { cls += ' win'; } // filled with team color, no icon
+      if (rn === curRound) cls += ' cur';
+      const num = isOT
+        ? ((i === 0 || i === cellCount - 1) ? String(rn) : '')
+        : ((i === 3 || i === 7 || i === 11) ? String(rn) : '');
+      cells += '<span class="rh-cell"><span class="' + cls + '">' + inner + '</span><span class="rh-num">' + num + '</span></span>';
+    }
+    html += '<div class="rh-row ' + side + '"><span class="rh-side">' + side.toUpperCase() + '</span><span class="rh-cells">' + cells + '</span></div>';
+  }
+  el.innerHTML = html;
+}
+
+/* ---------- Round result banner ---------- */
+function renderBanner(gsi) {
+  const b = $('roundbanner');
+  const rd = gsi.round || {};
+  if (curPhase === 'over' && rd.win_team) {
+    b.className = 'show ' + (rd.win_team === 'CT' ? 'ct' : 't');
+    b.textContent = (rd.win_team === 'CT' ? 'CT' : 'T') + ' WIN';
+  } else {
+    b.className = '';
+  }
+}
+
+/* ---------- Main render ---------- */
+/* Merge partial GSI packets with last good data, so missing fields
+   (weapons/state/money in some packets) don't flash zeros */
+let mergedPlayers = {};
+let mergedMap = {};
+function mergeGsi(gsi) {
+  const out = { ...gsi };
+  const all = gsi.allplayers;
+  if (all && Object.keys(all).length) {
+    const cur = {};
+    for (const [sid, p] of Object.entries(all)) {
+      if (!p || typeof p !== 'object') continue; // null entry would kill the whole frame render
+      const prev = mergedPlayers[sid] || {};
+      // state/match_stats are complete snapshots WHEN PRESENT — never deep-merge
+      // them: GSI omits defusekit (and other absence-typed keys) when false, so
+      // merging would glue a once-owned kit to the player forever (even after
+      // halftime side-switch). Only fall back to prev when the whole sub-object
+      // is missing from this packet (the anti-flicker case).
+      const hasState = p.state && Object.keys(p.state).length;
+      const hasStats = p.match_stats && Object.keys(p.match_stats).length;
+      cur[sid] = {
+        ...prev, ...p,
+        state: hasState ? { ...p.state } : (prev.state || {}),
+        match_stats: hasStats ? { ...p.match_stats } : (prev.match_stats || {}),
+        weapons: (p.weapons && Object.keys(p.weapons).length) ? p.weapons : (prev.weapons || {})
+      };
+    }
+    mergedPlayers = cur;
+    out.allplayers = mergedPlayers;
+  } else if (Object.keys(mergedPlayers).length) {
+    out.allplayers = mergedPlayers;
+  }
+  const m = gsi.map || {};
+  // New map or match restart: drop carried-over state so the previous map's
+  // round_wins / scores / player stats don't linger while fresh packets arrive.
+  const mapSwitched = m.name && mergedMap.name && m.name !== mergedMap.name;
+  const roundReset = typeof m.round === 'number' && typeof mergedMap.round === 'number' && m.round < mergedMap.round;
+  if (mapSwitched || roundReset) {
+    mergedMap = {};
+    mergedPlayers = {};
+  }
+  mergedMap = {
+    ...mergedMap, ...m,
+    team_ct: { ...(mergedMap.team_ct || {}), ...(m.team_ct || {}) },
+    team_t: { ...(mergedMap.team_t || {}), ...(m.team_t || {}) }
+  };
+  out.map = mergedMap;
+  return out;
+}
+
+function render(gsi) {
+  gsi = mergeGsi(gsi);
+  lastGsi = gsi;
+  $('waiting').classList.add('hidden');
+
+  const pc = gsi.phase_countdowns || {};
+  if (pc.phase) {
+    curPhase = pc.phase;
+    // jitter guard: only re-base the clock when the packet disagrees by >0.3s,
+    // and never let a malformed value turn phaseEndsAt into NaN
+    const t = parseFloat(pc.phase_ends_in || 0);
+    if (isFinite(t)) {
+      const newEnd = Date.now() + t * 1000;
+      if (Math.abs(newEnd - phaseEndsAt) > 300) phaseEndsAt = newEnd;
+    }
+  }
+  // Technical pause detection:
+  //  1) native GSI phase 'paused' (mp_pause_match / referee pause) — instant
+  //  2) fallback: freezetime whose countdown doesn't tick down for >2.5s
+  if (pc.phase === 'paused') {
+    techPaused = true;
+    lastFreezeEndsIn = null;
+    freezeStuckSince = 0;
+  } else if (pc.phase === 'freezetime') {
+    const v = parseFloat(pc.phase_ends_in || 0);
+    if (lastFreezeEndsIn !== null && Math.abs(v - lastFreezeEndsIn) < 0.05) {
+      if (!freezeStuckSince) freezeStuckSince = Date.now();
+    } else {
+      freezeStuckSince = 0;
+    }
+    lastFreezeEndsIn = v;
+    techPaused = freezeStuckSince > 0 && (Date.now() - freezeStuckSince) > 2500;
+  } else if (pc.phase) {
+    lastFreezeEndsIn = null;
+    freezeStuckSince = 0;
+    techPaused = false;
+  }
+  // New round started: clear any stale bomb state (covers mid-live page reloads
+  // where the old 'planted' packet would otherwise keep drawing the C4 strip)
+  const roundNow = (gsi.map && typeof gsi.map.round === 'number') ? gsi.map.round : null;
+  if (roundNow !== null && lastMapRound !== null && roundNow !== lastMapRound) bombState = null;
+  if (roundNow !== null) lastMapRound = roundNow;
+  if (gsi.bomb) bombState = gsi.bomb; // keep last bomb packet if this one omits it
+  if (curPhase === 'freezetime' || curPhase === 'over') bombState = null;
+  document.body.classList.toggle('phase-timeout', curPhase === 'timeout_ct' || curPhase === 'timeout_t' || techPaused);
+
+  renderTeams(gsi);
+  renderMapStrip(gsi);
+  renderPlayers(gsi);
+  renderObserved(gsi);
+  renderBanner(gsi);
+  renderRadar(gsi);
+  renderTimeout(gsi);
+  renderFreezetime(gsi);
+  renderRoundHist(gsi);
+}
+
+/* ---------- Project Replay GSI connection ---------- */
+function connect() {
+  let lastUpdate = 0;
+  const waiting = $('waiting');
+  const hud = $('hud');
+  function consume(state) {
+    lastUpdate = Date.now();
+    const gsi = state && state.gsi;
+    const usable = !!(state && state.fresh && gsi && gsi.map);
+    hud.style.visibility = usable && state.visible !== false ? 'visible' : 'hidden';
+    waiting.classList.toggle('hidden', usable);
+    if (!usable) return;
+    try {
+      render(gsi);
+      document.body.dataset.replayGsi = 'connected';
+      document.body.dataset.replayPlayers = String(Object.keys(gsi.allplayers || {}).length);
+    } catch (error) {
+      document.body.dataset.replayGsi = 'render-error';
+      console.error('Replay HUD render failed', error);
+      hud.style.visibility = 'hidden';
+      waiting.classList.remove('hidden');
+    }
+  }
+  window.addEventListener('replay-hud', event => consume(event.detail));
+  if (window.ReplayHUD && window.ReplayHUD.state) consume(window.ReplayHUD.state);
+  else hud.style.visibility = 'hidden';
+  setInterval(() => {
+    if (Date.now() - lastUpdate > 3000) {
+      hud.style.visibility = 'hidden';
+      waiting.classList.remove('hidden');
+      document.body.dataset.replayGsi = 'disconnected';
+    }
+  }, 500);
+}
+
+/* ---------- Layout editor & custom layout ---------- */
+const EDITABLE = ['topbar', 'mapstrip', 'players-left', 'players-right', 'obsplayer', 'fz-ct', 'fz-t', 'roundhist', 'radar', 'bombbar', 'timeout', 'roundbanner', 'clutch-ct', 'clutch-t'];
+const LAYOUT_KEY = 'astra-hud-layout-v2';
+const IS_EDIT = location.hash === '#edit' || new URLSearchParams(location.search).has('edit');
+const IS_RADAR = location.hash === '#radar' || new URLSearchParams(location.search).has('radar');
+// Layout variant: ?layout=bottom switches the side player columns to a bottom row of
+// square cards (used by the astra-bottom thin loader, which redirects here with
+// hud=astra-bottom&layout=bottom added to the query).
+if (new URLSearchParams(location.search).get('layout') === 'bottom') document.body.classList.add('layout-bottom');
+// Layout is stored server-side so every view of this HUD (overlay editor AND
+// OBS browser source, which has its own localStorage) shares the same layout.
+// The ?hud= query param lets thin-loader variants (e.g. astra-bottom) keep their
+// own layout storage instead of sharing the directory-derived HUD id.
+const HUD_ID = new URLSearchParams(location.search).get('hud') || (location.pathname.match(/\/huds\/([^/]+)\//) || [])[1] || 'astra-default';
+let serverLayout = null; // authoritative copy fetched from /api/hud-layout
+
+function getLayout() {
+  if (serverLayout) return serverLayout;
+  try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch (e) { return {}; }
+}
+let layoutPostTimer = null;
+function saveLayout(l) {
+  serverLayout = l;
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)); } catch (e) {}
+  clearTimeout(layoutPostTimer);
+  layoutPostTimer = setTimeout(() => {
+    fetch('/api/hud-layout/' + HUD_ID, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(l)
+    }).catch(() => {});
+  }, 250);
+}
+async function loadServerLayout() { /* Keep the packaged layout in Replay. */ }
+
+function designRect(el) {
+  const hudRect = $('hud').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return { x: (r.left - hudRect.left) / hudScale, y: (r.top - hudRect.top) / hudScale, w: r.width / hudScale, h: r.height / hudScale };
+}
+
+// NOTE: elements without a saved layout entry keep their pure CSS anchors
+// (bottom/right/translateX(-50%) etc.) — always correct at any render timing.
+// Conversion to explicit left/top happens lazily in normalizeEl() on first drag.
+function applySavedLayout() {
+  const saved = getLayout();
+  for (const id of EDITABLE) {
+    const l = saved[id];
+    const el = $(id);
+    if (!l || !el) continue;
+    el.style.right = 'auto'; el.style.bottom = 'auto';
+    el.style.transformOrigin = 'top left';
+    el.style.left = l.x + 'px';
+    el.style.top = l.y + 'px';
+    el.style.transform = l.s && l.s !== 1 ? 'scale(' + l.s + ')' : 'none';
+    el.dataset.norm = '1'; // skip editing-mode anchor overrides (#roundhist translate etc.)
+  }
+}
+
+// Demo data so every component is visible while editing
+function renderDemo() {
+  const demo = {
+    map: { name: 'de_mirage', phase: 'live', round: 11,
+      team_ct: { score: 6, name: '', timeouts_remaining: 1, consecutive_round_losses: 2 },
+      team_t: { score: 5, name: '', timeouts_remaining: 2, consecutive_round_losses: 1 },
+      round_wins: { '1': 'ct_win_elimination', '2': 'ct_win_defuse', '3': 't_win_elimination', '4': 't_win_bomb', '5': 'ct_win_elimination', '6': 't_win_bomb', '7': 'ct_win_defuse', '8': 'ct_win_elimination', '9': 't_win_elimination', '10': 'ct_win_elimination', '11': 't_win_bomb' } },
+    round: { phase: 'live', win_team: 'CT' },
+    phase_countdowns: { phase: 'timeout_ct', phase_ends_in: '27.0' },
+    player: { steamid: 'dct2' },
+    bomb: { state: 'planted', position: '-300, -900, 0', countdown: '30' },
+    allplayers: {}
+  };
+  const spots = { ct: [[-350, -1700], [-300, -900], [1000, -600], [200, -300], [-600, -1400]], t: [[300, 500], [-400, -400], [900, -200], [-200, -1000], [600, -700]] };
+  ['ct', 't'].forEach(side => {
+    for (let i = 1; i <= 5; i++) {
+      const [x, y] = spots[side][i - 1];
+      demo.allplayers['d' + side + i] = {
+        name: (side === 'ct' ? 'CTPlayer' : 'TPlayer') + i, team: side.toUpperCase(), observer_slot: i,
+        position: x + ', ' + y + ', 0', forward: '0, ' + (side === 'ct' ? '1' : '-1') + ', 0',
+        state: { health: i === 4 ? 0 : 100 - i * 5, armor: 100, helmet: i % 2 === 0, defusekit: side === 'ct' && i === 1, money: 4200 - i * 400 },
+        match_stats: { kills: 8 + i, deaths: 6, assists: 3, score: 34 },
+        weapons: {
+          weapon_0: { name: 'weapon_knife', type: 'Knife', state: 'holstered' },
+          weapon_1: { name: i === 3 ? 'weapon_awp' : (side === 'ct' ? 'weapon_m4a1_silencer' : 'weapon_ak47'), type: 'Rifle', state: 'active' },
+          weapon_2: { name: 'weapon_flashbang', type: 'Grenade', state: 'holstered' }
+        }
+      };
+    }
+  });
+  demo.allplayers.dt1.weapons.weapon_3 = { name: 'weapon_c4', type: 'C4', state: 'holstered' };
+  render(demo);
+}
+
+// On first drag of a part that was hidden at init (still has CSS anchors like
+// translateX(-50%)), convert its measured position to explicit left/top so it
+// doesn't jump when the drag writes inline styles.
+function normalizeEl(el) {
+  if (el.dataset.norm) return;
+  const r = designRect(el);
+  el.style.right = 'auto'; el.style.bottom = 'auto';
+  el.style.transform = 'none';
+  el.style.transformOrigin = 'top left';
+  el.style.left = r.x + 'px';
+  el.style.top = r.y + 'px';
+  el.dataset.norm = '1';
+}
+
+// demo player object so clutch cards have real content in edit mode
+// (live GSI data only fills them during an actual clutch)
+function clutchDemoPlayer(team) {
+  return {
+    name: team === 'CT' ? 'CTPlayer1' : 'TPlayer1', team, observer_slot: 1,
+    state: { health: 85, armor: 100, helmet: true, defusekit: team === 'CT', money: 4200 },
+    match_stats: { kills: 12, deaths: 6, assists: 3 },
+    weapons: {
+      weapon_0: { name: 'weapon_knife', type: 'Knife', state: 'holstered' },
+      weapon_1: { name: team === 'CT' ? 'weapon_m4a1_silencer' : 'weapon_ak47', type: 'Rifle', state: 'active' },
+      weapon_2: { name: 'weapon_flashbang', type: 'Grenade', state: 'holstered' }
+    }
+  };
+}
+
+function initEditMode() {
+  document.body.classList.add('editing');
+  if (!lastGsi) renderDemo();
+  if (!$('clutch-ct').firstChild) renderClutchCard('CT', clutchDemoPlayer('CT'));
+  if (!$('clutch-t').firstChild) renderClutchCard('T', clutchDemoPlayer('T'));
+  const banner = $('roundbanner');
+  banner.textContent = 'CT WIN';
+  banner.className = 'show ct';
+
+  let drag = null;
+  let selected = [];
+  const paintSel = () => {
+    document.querySelectorAll('.editable.selected').forEach(x => x.classList.remove('selected'));
+    selected.forEach(x => x.classList.add('selected'));
+  };
+  const select = (el, additive) => {
+    if (additive) {
+      selected = selected.includes(el) ? selected.filter(x => x !== el) : selected.concat(el);
+    } else {
+      selected = [el];
+    }
+    paintSel();
+  };
+  // --- snap-on-drag: candidate lines (screen center/edges + every other part's
+  // edges and centers); shows guide lines while snapped ---
+  const guideV = document.createElement('div'); guideV.className = 'snap-guide v';
+  const guideH = document.createElement('div'); guideH.className = 'snap-guide h';
+  $('hud').appendChild(guideV); $('hud').appendChild(guideH);
+  const hideGuides = () => { guideV.style.display = 'none'; guideH.style.display = 'none'; };
+  const SNAP_T = 10;
+  function snapDrag(el, x, y) {
+    const r = designRect(el);
+    const w = r.w, h = r.h;
+    const xLines = [0, 960, 1920], yLines = [0, 540, 1080];
+    EDITABLE.forEach(id => {
+      const o = $(id);
+      if (!o || o === el) return;
+      const or = designRect(o);
+      if (or.w <= 0 || or.h <= 0) return;
+      xLines.push(or.x, or.x + or.w / 2, or.x + or.w);
+      yLines.push(or.y, or.y + or.h / 2, or.y + or.h);
+    });
+    let bx = null, by = null;
+    for (const L of xLines) for (const off of [0, w / 2, w]) {
+      const d = L - off - x;
+      if (Math.abs(d) <= SNAP_T && (!bx || Math.abs(d) < Math.abs(bx.d))) bx = { d, L };
+    }
+    for (const L of yLines) for (const off of [0, h / 2, h]) {
+      const d = L - off - y;
+      if (Math.abs(d) <= SNAP_T && (!by || Math.abs(d) < Math.abs(by.d))) by = { d, L };
+    }
+    if (bx) { x += bx.d; guideV.style.left = bx.L + 'px'; guideV.style.display = 'block'; } else guideV.style.display = 'none';
+    if (by) { y += by.d; guideH.style.top = by.L + 'px'; guideH.style.display = 'block'; } else guideH.style.display = 'none';
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  EDITABLE.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.classList.add('editable');
+    el.style.pointerEvents = 'auto';
+    const rz = document.createElement('div');
+    rz.className = 'rz';
+    el.appendChild(rz);
+
+    el.addEventListener('mousedown', e => {
+      if (e.target === rz) return;
+      e.preventDefault();
+      select(el, e.shiftKey);
+      normalizeEl(el);
+      const hudRect = $('hud').getBoundingClientRect();
+      const r = designRect(el);
+      drag = {
+        el, id, resize: false,
+        offX: (e.clientX - hudRect.left) / hudScale - r.x,
+        offY: (e.clientY - hudRect.top) / hudScale - r.y
+      };
+    });
+    rz.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!selected.includes(el)) select(el, false);
+      normalizeEl(el);
+      const r = designRect(el);
+      const cur = getLayout()[id];
+      drag = { el, id, resize: true, startX: e.clientX, startW: r.w, startS: (cur && cur.s) || 1 };
+    });
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const hudRect = $('hud').getBoundingClientRect();
+    const mx = (e.clientX - hudRect.left) / hudScale;
+    const my = (e.clientY - hudRect.top) / hudScale;
+    const layout = getLayout();
+    const cur = layout[drag.id] || { x: parseFloat(drag.el.style.left) || 0, y: parseFloat(drag.el.style.top) || 0, s: 1 };
+    if (drag.resize) {
+      const dw = (e.clientX - drag.startX) / hudScale;
+      cur.s = Math.round(Math.min(3, Math.max(0.3, drag.startS * (drag.startW + dw) / drag.startW)) * 100) / 100;
+      drag.el.style.transform = 'scale(' + cur.s + ')';
+    } else {
+      const sn = snapDrag(drag.el, mx - drag.offX, my - drag.offY);
+      cur.x = sn.x; cur.y = sn.y;
+      drag.el.style.left = cur.x + 'px';
+      drag.el.style.top = cur.y + 'px';
+    }
+    layout[drag.id] = cur;
+    saveLayout(layout);
+  });
+  window.addEventListener('mouseup', () => { drag = null; hideGuides(); });
+
+  $('tb-reset').onclick = () => {
+    clearTimeout(layoutPostTimer);
+    serverLayout = {};
+    try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
+    // must await the POST before reloading, otherwise the reload kills the
+    // debounced save and the server keeps the old layout ("reset does nothing")
+    fetch('/api/hud-layout/' + HUD_ID, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+    }).catch(() => {}).then(() => location.reload());
+  };
+  $('tb-done').onclick = () => { window.close(); };
+
+  // draggable + foldable toolbar so it never covers the parts being adjusted
+  const tb = $('edit-toolbar');
+  const TB_KEY = 'astra-hud-tb-pos';
+  try {
+    const p = JSON.parse(localStorage.getItem(TB_KEY) || 'null');
+    if (p) { tb.style.left = p.x + 'px'; tb.style.top = p.y + 'px'; }
+  } catch (e) {}
+  let tbDrag = null;
+  $('tb-drag').addEventListener('mousedown', e => {
+    tbDrag = { ox: e.clientX - tb.offsetLeft, oy: e.clientY - tb.offsetTop };
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!tbDrag) return;
+    const x = Math.max(0, Math.min(window.innerWidth - 80, e.clientX - tbDrag.ox));
+    const y = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - tbDrag.oy));
+    tb.style.left = x + 'px'; tb.style.top = y + 'px';
+    try { localStorage.setItem(TB_KEY, JSON.stringify({ x, y })); } catch (err) {}
+  });
+  window.addEventListener('mouseup', () => { tbDrag = null; });
+  $('tb-fold').onclick = () => document.body.classList.add('tb-folded');
+  $('edit-pill').onclick = () => document.body.classList.remove('tb-folded');
+}
+
+Promise.all([loadSprite(), loadServerLayout()]).then(() => {
+  if (IS_RADAR) {
+    // Radar-only view: ignore saved layout; center + fit radar in the actual window
+    // (accounting for the #hud 16:9 letterbox via its on-screen rect)
+    document.body.classList.add('radar-only');
+    const fitRadar = () => {
+      const hudRect = $('hud').getBoundingClientRect();
+      if (!hudRect.width) return;
+      const hs = hudRect.width / 1920; // #hud on-screen scale
+      const target = Math.min(window.innerWidth, window.innerHeight) * 0.94; // desired screen px
+      const s = target / (RADAR_SIZE * hs);
+      const el = $('radar');
+      el.style.transform = 'scale(' + s.toFixed(4) + ')';
+      el.style.left = (((window.innerWidth - target) / 2) - hudRect.left) / hs + 'px';
+      el.style.top = (((window.innerHeight - target) / 2) - hudRect.top) / hs + 'px';
+    };
+    fitRadar();
+    window.addEventListener('resize', fitRadar);
+  } else {
+    applySavedLayout();
+  }
+  if (IS_EDIT) initEditMode();
+});
+connect();
+</script>
+</body>
+</html>
