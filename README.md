@@ -1,4 +1,10 @@
-# Project Replay 0.2.6
+# Project Replay 0.2.7
+
+## 0.2.7 内置 Astra HUD 与完整 GSI
+
+HUD 选择与设置中可直接选择 **Astra HUD（内置 · 默认）** 或 **OpenHUD（已有 OBS 源）**。Astra 页面、字体、武器图标和雷达随程序嵌入，无需 ZIP 和额外服务；新配置默认选用 Astra，已有明确选择保留。OpenHUD 复用其已有 OBS 源，保留原地址、尺寸和滤镜。切换时关闭其他 Replay HUD 及旧的 OpenHUD Broadcast，录制前仍校验只启用所选 HUD。
+
+Replay 自动安装和下载的 A/B 路 GSI 配置均包含 Astra 所需的玩家位置/朝向、武器/弹药、比赛统计、回合历史、C4 和投掷物数据。安装新配置后需重启 CS2 以加载；位置与全员数据需观战/GOTV 权限。字段映射和限制见 [Astra HUD 集成](docs/Astra-HUD.md)。
 
 ## 0.2.6 单 HUD、保枪击杀与连续切镜
 
@@ -31,9 +37,9 @@ CS2 双端回放软件首版：Windows 导播台 + Linux 录制 Agent。中文�
 
 | 设备 | 文件 |
 |---|---|
-| Windows 10/11 x64 | `dist/ProjectReplay-windows-x64-portable.exe`，或附说明的 `ProjectReplay-0.2.6-windows-amd64-portable.zip` |
-| DGX Spark / Linux ARM64 | `dist/ProjectReplay-0.2.6-linux-arm64.tar.gz` |
-| 普通 Linux x64 | `dist/ProjectReplay-0.2.6-linux-amd64.tar.gz` |
+| Windows 10/11 x64 | `dist/ProjectReplay-windows-x64-portable.exe`，或附说明的 `ProjectReplay-0.2.7-windows-amd64-portable.zip` |
+| DGX Spark / Linux ARM64 | `dist/ProjectReplay-0.2.7-linux-arm64.tar.gz` |
+| 普通 Linux x64 | `dist/ProjectReplay-0.2.7-linux-amd64.tar.gz` |
 
 Windows：将 EXE 放入可写目录，双击启动，浏览器自动打开本地导播台。免安装、不需要 Python/.NET/Node；EXE 未做代码签名。首次运行在 EXE 同目录创建 `replay-data`，包括配置、素材和状态；移动程序时一并移动此目录。ZIP 内含启动脚本、说明和许可证。浏览器未打开时，使用终端显示的地址。
 
@@ -182,7 +188,7 @@ python3 scripts/build.py
 
 ### 自动隐藏游戏 UI 与最低画质
 
-Linux 安装战队 HUD 到 OBS 时，真实模式会按 CSStudio 的 `openhud_headless.json` 发送 `sv_cheats 1; gameui_hide; hideconsole; cl_drawhud 0; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 0; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；启用 OBS HUD 后禁止再显示游戏原生 HUD，避免重复叠加。
+Linux 安装战队 HUD 到 OBS 时，真实模式会使用无需 `sv_cheats` 的隐藏方案，发送 `gameui_hide; hideconsole; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；启用 OBS HUD 后禁止再显示游戏原生 HUD，避免重复叠加。
 
 通过 Replay 启动新的 CS2 进程前，自动备份并原子更新 Snap Steam 账户的 `cs2_video.txt`：关闭抗锯齿、环境光遮蔽和垂直同步，阴影、纹理、粒子、过滤采用最低设置，HDR / FSR 采用性能设置，输出保留 1920×1080。配置缺失、字段异常或发现多个账户时会报错并停止启动。已经运行的 CS2 不会被强制重启，画质在下次关闭后重新启动时应用。
 
