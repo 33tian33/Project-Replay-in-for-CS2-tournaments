@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist'
 GO = os.environ.get('GO', 'go')
-VERSION = '0.2.6'
+VERSION = '0.2.7'
 TARGETS = [('windows', 'amd64'), ('linux', 'arm64'), ('linux', 'amd64')]
 DIST.mkdir(exist_ok=True)
 artifacts = []
@@ -25,7 +25,7 @@ for system, arch in TARGETS:
     subprocess.run([GO, 'build', '-buildvcs=false', '-trimpath', '-ldflags=-s -w', '-o', str(folder / source_exe), './cmd/replay-source'], cwd=ROOT, env=env, check=True)
     shutil.copytree(ROOT / 'third_party_licenses', folder / 'third_party_licenses', dirs_exist_ok=True)
     (folder / 'docs').mkdir(exist_ok=True)
-    for name in ['云中继部署与配对.md', 'Windows网页回放交付说明.md', '道具击杀追踪.md', '原生自动追雷交付与验证.md', '道具追踪开源实现调研.md', '本地Demo双路联调.md', '自动录制流程与后台渲染.md', '0.1.1修复与升级说明.md']:
+    for name in ['云中继部署与配对.md', 'Windows网页回放交付说明.md', '道具击杀追踪.md', '原生自动追雷交付与验证.md', '道具追踪开源实现调研.md', '本地Demo双路联调.md', '自动录制流程与后台渲染.md', '0.1.1修复与升级说明.md', 'Astra-HUD.md']:
         shutil.copy2(ROOT / 'docs' / name, folder / 'docs' / name)
     shutil.copytree(ROOT / 'configs', folder / 'configs', dirs_exist_ok=True)
     shutil.copy2(ROOT / 'README.md', folder / 'README.md')
