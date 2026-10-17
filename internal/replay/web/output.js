@@ -7,13 +7,15 @@ label.addEventListener('animationend',e=>{if(e.animationName==='tag-in')label.cl
 function hideTag(){label.hidden=true;label.className='';tagSession=''}
 function showTag(session){if(tagSession===session)return;tagSession=session;label.hidden=false;label.className='entering'}
 function exitTag(){if(!label.hidden&&label.className!=='exiting')label.className='exiting'}
+let progress=null;
+const stallTimeout=3000;
 let playing='',lastOK=0,active=null,ackPending=null,loadingSince=0,preloaded='',pollTimer=null,polling=false,pollAgain=false;
-function reset(v){v.ontimeupdate=null;v.onended=null;v.onerror=null;v.onplaying=null;v.pause();v.removeAttribute('src');v.load();v.style.display='none'}
-function clear(){reset(video);reset(standby);hideTag();playing='';active=null;loadingSince=0;preloaded=''}
+function reset(v){if(v.replayFrameHandle!=null&&v.cancelVideoFrameCallback)v.cancelVideoFrameCallback(v.replayFrameHandle);v.replayFrameHandle=null;v.ontimeupdate=null;v.onended=null;v.onerror=null;v.onplaying=null;v.pause();v.removeAttribute('src');v.load();v.style.display='none'}
+function clear(){progress=null;reset(video);reset(standby);hideTag();playing='';active=null;loadingSince=0;preloaded=''}
 function source(item){return '/output-api/media/'+encodeURIComponent(item.id)}
 async function call(path,body){const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),2000);try{const r=await fetch('/output-api/'+path+'?client='+encodeURIComponent(client),{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,signal:controller.signal});if(!r.ok){const error=Error(String(r.status));error.status=r.status;throw error}return await r.json()}finally{clearTimeout(timeout)}}
 function preloadNext(s){const next=s.items[s.index+1],identity=next?s.id+':'+(s.index+1)+':'+next.id:'';if(preloaded===identity)return;reset(standby);preloaded=identity;if(next){standby.src=source(next);standby.load()}}
-function finish(error=''){if(!active||ackPending)return;ackPending={id:active.id,index:active.index,client,error};video.pause();if(error){video.style.display='none';hideTag()}loadingSince=0;void poll()}
+function finish(error=''){if(!active||ackPending)return;ackPending={id:active.id,index:active.index,client,error};video.pause();if(error){progress=null;reset(video);reset(standby);hideTag()}loadingSince=0;void poll()}
 async function poll(){if(polling){pollAgain=true;return}clearTimeout(pollTimer);polling=true;try{
  if(ackPending){try{await call('ack',ackPending)}catch(e){if(e.status!==409)throw e}ackPending=null}
  const s=await call('state');lastOK=Date.now();
@@ -22,10 +24,10 @@ async function poll(){if(polling){pollAgain=true;return}clearTimeout(pollTimer);
  active=s;
  if(playing!==identity){
   const oldVideo=video;[video,standby]=[standby,video];
-  playing=identity;active=s;loadingSince=Date.now();
+  playing=identity;active=s;progress=null;loadingSince=Date.now();
   video.ontimeupdate=()=>{if(playing===identity&&item.kind==='replay'&&active?.items[active.index+1]?.kind!=='replay'&&Number.isFinite(video.duration)&&video.duration-video.currentTime<=.4)exitTag()};
   video.onended=()=>{if(playing===identity)finish()};video.onerror=()=>{if(playing===identity)finish('decode')};
-  video.onplaying=()=>{if(playing!==identity)return;loadingSince=0;video.style.display='block';oldVideo.style.display='none';oldVideo.pause();if(item.kind==='replay')showTag(s.id);else hideTag();preloaded='';preloadNext(active)};
+  video.onplaying=()=>{if(playing!==identity||ackPending)return;loadingSince=0;if(!progress){progress={identity,time:video.currentTime,at:performance.now(),frameAt:performance.now(),frames:typeof video.requestVideoFrameCallback==='function'};watchFrames(video,identity)}video.style.display='block';oldVideo.style.display='none';oldVideo.pause();if(item.kind==='replay')showTag(s.id);else hideTag();preloaded='';preloadNext(active)};
   if(preloaded!==identity)video.src=source(item);
   video.play().catch(e=>{if(playing===identity)finish(e.name==='NotAllowedError'?'autoplay':'decode')});
  }
@@ -33,7 +35,9 @@ async function poll(){if(polling){pollAgain=true;return}clearTimeout(pollTimer);
  if(loadingSince && Date.now()-loadingSince>10000)finish('load timeout');
  }catch(e){if(e.status===409 || Date.now()-lastOK>2500){ackPending=null;clear()}}
  finally{polling=false;if(pollAgain){pollAgain=false;void poll()}else pollTimer=setTimeout(poll,200)}}
-setInterval(()=>{if(Date.now()-lastOK>3000&&playing){ackPending=null;clear()}},250);
+function watchFrames(v,identity){if(!v.requestVideoFrameCallback)return;v.replayFrameHandle=v.requestVideoFrameCallback(()=>{if(playing!==identity||!progress||ackPending)return;progress.frameAt=performance.now();watchFrames(v,identity)})}
+function checkProgress(){if(!progress||loadingSince||ackPending||!active)return;const now=performance.now();if(Number.isFinite(video.currentTime)&&video.currentTime>progress.time+.001){progress.time=video.currentTime;progress.at=now}if(now-progress.at>=stallTimeout||(progress.frames&&now-progress.frameAt>=stallTimeout))finish('playback stalled')}
+setInterval(()=>{if(Date.now()-lastOK>3000&&playing){ackPending=null;clear();return}checkProgress()},250);
 poll();
 
 // Frame sampling avoids late exits from the browser's low-frequency timeupdate event.
