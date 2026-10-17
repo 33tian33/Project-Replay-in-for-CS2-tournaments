@@ -3,15 +3,15 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const script=fs.readFileSync('internal/replay/web/output.js','utf8');
-async function fixture(block=false,clipsOnly=false){
+async function fixture(block=false,clipsOnly=false,frames=false){
  let server={id:'session',index:0,due:0,items:[{id:'intro',kind:'transition'},{id:'clip1',kind:'replay'},{id:'clip2',kind:'replay'},{id:'outro',kind:'transition'}]};
  if(clipsOnly)server.items=server.items.filter(item=>item.kind==='replay');
  const label={hidden:true,className:'',addEventListener(name,fn){this[name]=fn}},acks=[];
- function video(){return {style:{display:'none'},paused:true,src:'',duration:2,currentTime:0,loads:0,load(){this.loads++},pause(){this.paused=true},removeAttribute(){this.src=''},play(){if(block)return Promise.reject(Object.assign(Error('blocked'),{name:'NotAllowedError'}));this.paused=false;queueMicrotask(()=>this.onplaying?.());return Promise.resolve()}}}
+ function video(){const v={style:{display:'none'},paused:true,src:'',duration:2,currentTime:0,loads:0,load(){this.loads++},pause(){this.paused=true},removeAttribute(){this.src=''},play(){if(block)return Promise.reject(Object.assign(Error('blocked'),{name:'NotAllowedError'}));this.paused=false;queueMicrotask(()=>this.onplaying?.());return Promise.resolve()}};if(frames){v.requestVideoFrameCallback=fn=>{v.frame=fn;return 1};v.cancelVideoFrameCallback=()=>{v.frame=null}}return v}
  const videos=[video(),video()];let time=10000,offline=false,watchdog;
- const context=vm.createContext({document:{querySelector:s=>s==='#program'?videos[0]:s==='#standby'?videos[1]:label},location:{hash:''},crypto:{randomUUID:()=> 'obs'},URLSearchParams,AbortController,Date:{now:()=>time},requestAnimationFrame:()=>1,setTimeout:()=>1,clearTimeout(){},setInterval:fn=>{watchdog=fn},fetch:async(url,options)=>{if(offline)throw Error('offline');if(url.includes('/ack?')){const ack=JSON.parse(options.body);acks.push(ack);if(ack.error||++server.index===server.items.length)server={};return {ok:true,json:async()=>({ok:true})}}return {ok:true,json:async()=>structuredClone(server)}}});
+ const context=vm.createContext({document:{querySelector:s=>s==='#program'?videos[0]:s==='#standby'?videos[1]:label},location:{hash:''},crypto:{randomUUID:()=> 'obs'},URLSearchParams,AbortController,Date:{now:()=>time},performance:{now:()=>time},requestAnimationFrame:()=>1,setTimeout:()=>1,clearTimeout(){},setInterval:fn=>{watchdog=fn},fetch:async(url,options)=>{if(offline)throw Error('offline');if(url.includes('/ack?')){const ack=JSON.parse(options.body);acks.push(ack);if(ack.error||++server.index===server.items.length)server={};return {ok:true,json:async()=>({ok:true})}}return {ok:true,json:async()=>structuredClone(server)}}});
  vm.runInContext(script,context);await new Promise(setImmediate);
- return {videos,label,acks,append(){server.items.splice(server.items.length-1,0,{id:"late",kind:"replay"})},async next(){const current=videos.find(v=>!v.paused);assert.ok(current);current.onended();await context.poll();await new Promise(setImmediate)},async poll(){await context.poll();await new Promise(setImmediate)},disconnect(){offline=true;time+=4000;watchdog()},stop(){server={}}};
+ return {videos,label,acks,advance(ms){time+=ms;watchdog()},append(){server.items.splice(server.items.length-1,0,{id:"late",kind:"replay"})},async next(){const current=videos.find(v=>!v.paused);assert.ok(current);current.onended();await context.poll();await new Promise(setImmediate)},async poll(){await context.poll();await new Promise(setImmediate)},disconnect(){offline=true;time+=4000;watchdog()},stop(){server={}}};
 }
 test('transition → two replay clips → transition → transparent, with preloading',async()=>{
  const f=await fixture();assert.equal(f.label.hidden,true);assert.ok(f.videos.some(v=>v.src.includes('clip1')));
@@ -75,4 +75,32 @@ test('simultaneous poll requests do not acknowledge a clip twice',async()=>{
  await Promise.all([f.poll(),f.poll(),f.poll()]);
  assert.deepEqual(f.acks.map(a=>a.index),[0]);
  assert.equal(f.videos.find(v=>!v.paused).src,'/output-api/media/clip2');
+});
+
+ test('mid-playback freeze clears output while server heartbeat remains healthy',async()=>{
+ const f=await fixture(false,true);const v=f.videos.find(v=>!v.paused);
+ v.currentTime=.5;f.advance(500);await f.poll();
+ f.advance(2000);await f.poll();assert.equal(f.acks.length,0);
+ f.advance(1250);
+ assert.ok(f.videos.every(v=>v.paused&&v.style.display==='none'));
+ assert.equal(f.label.hidden,true);
+ await f.poll();assert.equal(f.acks[0].error,'playback stalled');
+ assert.equal(f.acks.length,1);
+ });
+ test('continuously progressing playback never trips stall watchdog',async()=>{
+ const f=await fixture(false,true);const v=f.videos.find(v=>!v.paused);v.duration=30;
+ for(let i=0;i<20;i++){v.currentTime+=.5;f.advance(500);await f.poll()}
+ assert.equal(f.acks.length,0);assert.equal(v.style.display,'block');
+ });
+
+test('rendered frame freeze is detected even if media time keeps moving',async()=>{
+ const f=await fixture(false,true,true);const v=f.videos.find(v=>!v.paused);
+ for(let i=0;i<6;i++){v.currentTime+=.5;f.advance(500);await f.poll()}
+ assert.ok(f.videos.every(v=>v.paused&&v.style.display==='none'));
+ assert.equal(f.acks[0].error,'playback stalled');assert.equal(v.frame,null);
+});
+test('rendered frames and media progress keep healthy playback visible',async()=>{
+ const f=await fixture(false,true,true);const v=f.videos.find(v=>!v.paused);v.duration=30;
+ for(let i=0;i<20;i++){v.currentTime+=.5;v.frame();f.advance(500);await f.poll()}
+ assert.equal(f.acks.length,0);assert.equal(v.style.display,'block');
 });
