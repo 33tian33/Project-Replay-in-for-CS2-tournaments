@@ -63,6 +63,9 @@ func Plan(events []Event, jobs []Job, c Config, now int64) []Event {
 		if e.JobID != "" {
 			continue
 		}
+		if e.Status == "MISSED_WINDOW" && e.Epoch == c.Epoch && e.Map == c.Map && e.Match == c.Match {
+			continue
+		}
 		if e.RoundTiming && e.Time == 0 {
 			if e.Epoch != c.Epoch || e.Match != c.Match || e.Map != c.Map {
 				e.Status = "CANCELLED"

@@ -14,9 +14,13 @@ import (
 	"time"
 )
 
-const Version = "0.2.9"
+const Version = "0.2.10"
 
-func nowMS() int64 { return time.Now().UnixMilli() }
+var processClock = time.Now()
+
+// Keep epoch-shaped timestamps for the protocol, but measure elapsed time with
+// Go's monotonic clock so an NTP correction cannot move a recording deadline.
+func nowMS() int64 { return processClock.UnixMilli() + time.Since(processClock).Milliseconds() }
 func id() string {
 	b := make([]byte, 16)
 	if _, e := rand.Read(b); e != nil {

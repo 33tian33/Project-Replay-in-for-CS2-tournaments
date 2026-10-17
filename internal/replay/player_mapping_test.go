@@ -224,7 +224,7 @@ func TestWrongTargetInvalidatesAutomaticSlot(t *testing.T) {
 	now := nowMS()
 	a.observed = "B"
 	a.observedAt = now - 10
-	m := &playerCamera{service: a, job: Job{Player: "A", Slot: 14, Epoch: a.s.Config.Epoch, Start: now - 100}, switchAt: now - 50}
+	m := &playerCamera{service: a, job: Job{Player: "A", Slot: 14, Epoch: a.s.Config.Epoch, Start: now - 1000}, switchAt: now - 50}
 	if m.Check() == nil || a.playerMapping.Slots["A"] != 0 {
 		t.Fatal("bad automatic slot retained")
 	}

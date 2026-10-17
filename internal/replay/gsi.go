@@ -120,6 +120,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		a.logLocked("warn", "GSI 断流后恢复：保留待录任务，重新建立计数和时钟基线")
 	}
 	resetMapping := a.gsiSeen[side] > 0 && t-a.gsiSeen[side] > 5000
+	previousClock := a.roundClocks[side]
 	a.updateRoundClockForRoundLocked(side, payload, t, round+1)
 	a.gsiMap[side] = gameMap
 	a.gsiSeen[side] = t
@@ -133,7 +134,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		a.observedAt = t
 		a.refreshPlayerMappingLocked(resetMapping)
 		if a.gotvReconnect.Phase == "sent" && a.observed != "" && len(obj(payload, "allplayers")) > 0 {
-			a.gotvReconnect = CS2Launch{Phase: "receiving", Message: "重连后已收到比赛 GSI，正在核验时钟与槽位"}
+			a.gotvReconnect = CS2Launch{Phase: "receiving", Message: "已收到 B 路比赛 GSI；目标服务器地址仍需在游戏中核对"}
 		}
 		return nil
 	}
@@ -198,7 +199,10 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 			e.RoundTiming = true
 			e.Uncertainty = .15 // GSI countdown estimate; independent of legacy delay calibration.
 			e.Time = 0
-			e.Clock = readRoundClock(payload)
+			if sample, ok := a.roundClocks[side]; ok {
+				clock := sample.Clock
+				e.Clock = &clock
+			}
 			if e.Clock != nil {
 				e.Clock.Round = e.Round
 			}
@@ -208,7 +212,11 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 			}
 			// Last kill may arrive with the new phase; project from the preceding
 			// active phase so B can start recording BEFORE the phase transition.
-			beforeClock := readRoundClock(old)
+			var beforeClock *RoundClock
+			if previousClock.At > 0 {
+				clock := previousClock.Clock
+				beforeClock = &clock
+			}
 			if beforeClock != nil {
 				beforeClock.Round = previousRound
 			}

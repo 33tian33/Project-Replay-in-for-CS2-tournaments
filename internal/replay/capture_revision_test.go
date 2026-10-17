@@ -255,6 +255,7 @@ func TestCaptureDirectCutsUseOneOBSRecording(t *testing.T) {
 	}()
 	t.Cleanup(func() { ln.Close(); <-done })
 	stop, feedDone := make(chan struct{}), make(chan struct{})
+	a.observed, a.observedAt = observed, nowMS()
 	go func() {
 		defer close(feedDone)
 		ticker := time.NewTicker(20 * time.Millisecond)

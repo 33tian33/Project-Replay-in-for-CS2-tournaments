@@ -225,3 +225,12 @@ func TestOutputStateIsJSON(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestOutputPlaybackStallClearsSession(t *testing.T) {
+	s := outputFixture(t)
+	s.startOutputLocked("round", 1)
+	w := request(t, s, "POST", "/output-api/ack", map[string]any{"id": s.output.ID, "index": 0, "client": "obs", "error": "playback stalled"}, "", "")
+	if w.Code != 200 || s.output.ID != "" || !strings.Contains(s.outputError, "进度停滞") {
+		t.Fatal("stalled playback did not clear session", w.Body.String(), s.outputError)
+	}
+}

@@ -30,7 +30,7 @@ func (a *Service) runJob(j Job, c Config) {
 	a.jobUpdate(j.ID, "READY", "片段已校验，可供导播预览", artifacts)
 }
 func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
-	if e := a.waitUntil(j.Start - int64(c.Setup*1000)); e != nil {
+	if e := a.waitUntil(j.Start - recordingSetupMS(c)); e != nil {
 		return nil, e
 	}
 	j = a.captureSnapshot(j, false)

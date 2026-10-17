@@ -44,6 +44,7 @@ func (a *Service) beginGOTVReconnectLocked(c Config) {
 			a.refreshPlayerMappingLocked(true)
 			a.s.Config.Paused = !a.s.Config.AutoCapture
 			a.gotvReconnect = CS2Launch{Phase: "sent", Message: "GOTV 重连命令已发送，等待新的比赛 GSI"}
+			a.gotvSentAt = nowMS()
 		}
 		a.active = a.pendingJobsLocked()
 		a.logLocked("info", a.gotvReconnect.Message)

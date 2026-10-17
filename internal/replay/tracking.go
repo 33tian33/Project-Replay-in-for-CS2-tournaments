@@ -85,7 +85,9 @@ func (m *playerCamera) Check() error {
 	if err := a.checkRoundJobLocked(m.job); err != nil {
 		return err
 	}
-	if nowMS() < m.job.Start && a.s.Config.Epoch == m.job.Epoch {
+	// The guard is excluded from exported footage. Allow delayed GSI to settle
+	// until the first usable frame, but never admit an unconfirmed target into it.
+	if nowMS() < m.job.Start+int64(a.s.Config.Guard*1000) && a.s.Config.Epoch == m.job.Epoch {
 		return nil
 	}
 	// Keep each failure distinguishable and preserve the observation that caused
@@ -209,7 +211,7 @@ func (m *utilityCamera) call(method string, body, result any) error {
 	ctx := m.service.ctx
 	timeout := 500 * time.Millisecond
 	if method == "PUT" {
-		timeout = time.Until(time.UnixMilli(m.job.Start - 150))
+		timeout = time.Duration(m.job.Start-150-nowMS()) * time.Millisecond
 		if timeout <= 0 {
 			return errors.New("MISSED_WINDOW：已错过道具准备期限")
 		}

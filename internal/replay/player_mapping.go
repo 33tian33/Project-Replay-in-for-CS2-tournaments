@@ -11,13 +11,14 @@ import (
 
 // Automatic slots belong to one live B roster, never to saved configuration.
 type playerMapping struct {
-	Phase   string         `json:"phase"`
-	Message string         `json:"message"`
-	Slots   map[string]int `json:"slots"`
-	Total   int            `json:"total"`
-	Slot    int            `json:"slot"`
-	key     string
-	retryAt int64
+	Phase    string         `json:"phase"`
+	Message  string         `json:"message"`
+	Slots    map[string]int `json:"slots"`
+	Total    int            `json:"total"`
+	Slot     int            `json:"slot"`
+	key      string
+	retryAt  int64
+	deadline int64
 }
 
 func (a *Service) mappingKeyLocked() (string, []string) {
@@ -91,6 +92,9 @@ func (a *Service) startPlayerMappingLocked(now int64) bool {
 		run.Message = fmt.Sprintf("命令槽位已就绪：%d 名玩家（手动映射优先）", run.Total)
 		return false
 	}
+	if a.mappingWouldDelayCaptureLocked(now) {
+		return false
+	}
 	if a.active || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" || a.cs2Launch.Phase == "starting" {
 		return false
 	}
@@ -103,6 +107,7 @@ func (a *Service) startPlayerMappingLocked(now int64) bool {
 		return false
 	}
 	a.mappingBusy = true
+	run.deadline = now + 6000
 	run.Phase = "scanning"
 	run.Message = "正在自动确认 B 路命令槽位，完成后恢复录制"
 	a.wg.Add(1)
@@ -137,10 +142,36 @@ func (a *Service) mappingObservation(run *playerMapping) (string, int64, error) 
 	if a.playerMapping != run || a.s.Config.Paused {
 		return "", 0, errors.New("会话或名单变化，取消本次探测")
 	}
+	if nowMS() >= run.deadline || a.mappingWouldDelayCaptureLocked(nowMS()) {
+		return "", 0, errors.New("探测时间片结束或录制即将开始，保留已确认槽位并释放相机")
+	}
 	if nowMS()-a.gsiSeen["b"] >= 1500 || a.observed == "" {
 		return "", 0, errors.New("B 路观战数据不新鲜")
 	}
 	return a.observed, a.observedAt, nil
+}
+
+// Mapping shares the camera with recording. Yield before a known target's
+// preparation deadline, including events that arrived during discovery.
+func (a *Service) mappingWouldDelayCaptureLocked(now int64) bool {
+	c := a.captureConfigLocked()
+	sample := a.roundClocks["b"]
+	if sample.At == 0 || now-sample.At > 1500 {
+		return false
+	}
+	for _, e := range a.s.Events {
+		if e.JobID != "" || e.Epoch != c.Epoch || e.Map != c.Map || c.Mappings[e.Player] == 0 || !validRoundClock(e.Clock) {
+			continue
+		}
+		at, ok := clockPrediction(sample, e)
+		if !ok && sample.Clock.Round == e.Round && sample.Clock.Phase == e.Clock.Phase {
+			at, ok = sample.At+int64((sample.Clock.Remaining-e.Clock.Remaining)*1000), true
+		}
+		if ok && at > now && at-now <= recordingSetupMS(c)+replayBeforeMS+int64(c.Guard*1000)+1500 {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Service) discoverPlayerSlots(run *playerMapping, c Config, ids []string) error {
@@ -196,13 +227,16 @@ func (a *Service) discoverPlayerSlots(run *playerMapping, c Config, ids []string
 		}
 		return "", nil
 	}
-	verified, err := discoverSlots(ids, probe, func(slot int) {
+	a.mu.Lock()
+	start, seed := run.Slot, jsonCopy(run.Slots)
+	a.mu.Unlock()
+	verified, err := discoverSlotsFrom(ids, probe, func(slot int) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.playerMapping == run {
-			run.Slot = slot
+			run.Slot = slot%128 + 1
 		}
-	})
+	}, start, seed)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.playerMapping != run {
@@ -220,15 +254,28 @@ func (a *Service) discoverPlayerSlots(run *playerMapping, c Config, ids []string
 // Every accepted pair is reproduced from a different target. A no-op command
 // or one late identity sample cannot establish a mapping on its own.
 func discoverSlots(ids []string, probe func(int) (string, error), progress func(int)) (map[string]int, error) {
+	return discoverSlotsFrom(ids, probe, progress, 1, nil)
+}
+
+func discoverSlotsFrom(ids []string, probe func(int) (string, error), progress func(int), start int, seed map[string]int) (map[string]int, error) {
 	roster := map[string]bool{}
 	for _, id := range ids {
 		roster[id] = true
 	}
 	candidates := map[string]int{}
 	verified := map[string]int{}
+	for player, slot := range seed {
+		if roster[player] {
+			candidates[player], verified[player] = slot, slot
+		}
+	}
+	if start < 1 || start > 128 {
+		start = 1
+	}
 	// A second pass discovers a slot that was already observed before pass one.
 	for pass := 0; pass < 2; pass++ {
-		for slot := 1; slot <= 128; slot++ {
+		for offset := 0; offset < 128; offset++ {
+			slot := (start-1+offset)%128 + 1
 			progress(slot)
 			player, err := probe(slot)
 			if err != nil {

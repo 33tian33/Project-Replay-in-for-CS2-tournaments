@@ -226,3 +226,14 @@ func TestDirectorReadsBReconnectStatus(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestNormalGOTVConnectReplacesOldStatus(t *testing.T) {
+	b := demoService(t, "agent")
+	b.s.Config.Mode = "live"
+	b.s.Config.NetCon, _ = demoConsole(t)
+	b.gotvReconnect = CS2Launch{Phase: "receiving", Message: "old connection"}
+	w := request(t, b, "POST", "/api/connect-gotv", gotvRequest{GOTV: "game.example:27020"}, "", "")
+	if w.Code != 200 || b.gotvReconnect.Phase != "sent" {
+		t.Fatal("new command retained old connection status", w.Body.String(), b.gotvReconnect)
+	}
+}

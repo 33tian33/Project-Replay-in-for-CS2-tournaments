@@ -97,6 +97,12 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 	api.HandleFunc("GET /api/gotv-status", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		c, status := a.s.Config, a.gotvReconnect
+		if a.gotvSentAt > 0 && status.Phase == "sent" && nowMS()-a.gotvSentAt > 30000 {
+			status = CS2Launch{Phase: "timeout", Message: "连接命令已发送，但 30 秒内未收到比赛 GSI；请检查 B 路游戏连接、密码和 GSI 配置"}
+		}
+		if status.Phase == "receiving" && nowMS()-a.gsiSeen["b"] > 5000 {
+			status = CS2Launch{Phase: "stale", Message: "B 路比赛 GSI 已中断；不能确认 GOTV 仍在线"}
+		}
 		a.mu.Unlock()
 		if a.role == "director" {
 			if err := remoteCall(r.Context(), c, "GET", "/api/gotv-status", nil, &status); err != nil {
@@ -178,6 +184,8 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 			a.s.Config.GOTVPassword = c.GOTVPassword
 			a.s.Config.Epoch++
 			a.s.Config.Paused = !a.s.Config.AutoCapture
+			a.gotvReconnect = CS2Launch{Phase: "sent", Message: "GOTV 连接命令已发送，等待比赛 GSI；尚未确认服务器连接成功"}
+			a.gotvSentAt = nowMS()
 		}
 		a.saveLocked()
 		if a.storageErr != "" {

@@ -115,6 +115,35 @@ func (a *Service) updateRoundClockForRoundLocked(side string, p map[string]any, 
 		a.roundClocks = map[string]clockSample{}
 	}
 	c := readRoundClock(p)
+	// A defuse countdown measures the attempt, not the bomb fuse. Keep the
+	// established bomb clock so interrupted/repeated attempts share one timeline.
+	if stringField(obj(p, "phase_countdowns"), "phase") == "defuse" {
+		attempt, err := strconv.ParseFloat(fmt.Sprint(obj(p, "phase_countdowns")["phase_ends_in"]), 64)
+		if err != nil || math.IsNaN(attempt) || math.IsInf(attempt, 0) || attempt < 0 || attempt > 600 {
+			delete(a.roundClocks, side)
+			return
+		}
+		old := a.roundClocks[side]
+		if old.Clock.Round == round && old.Clock.Phase == "bomb" && t >= old.At && t-old.At <= 1500 {
+			elapsed := float64(t-old.At) / 1000
+			previous := a.previous[side]
+			if stringField(obj(previous, "phase_countdowns"), "phase") == "defuse" {
+				before, err := strconv.ParseFloat(fmt.Sprint(obj(previous, "phase_countdowns")["phase_ends_in"]), 64)
+				if err != nil || math.IsNaN(before) || math.IsInf(before, 0) || before < 0 || before > 600 {
+					delete(a.roundClocks, side)
+					return
+				}
+				if before >= attempt {
+					elapsed = before - attempt
+				}
+			}
+			clock := old.Clock
+			clock.Remaining -= elapsed
+			if validRoundClock(&clock) {
+				c = &clock
+			}
+		}
+	}
 	if c == nil {
 		delete(a.roundClocks, side)
 		return
@@ -170,6 +199,11 @@ func (a *Service) resolveRoundEventsLocked(now int64) {
 		if !e.RoundTiming || e.JobID != "" {
 			continue
 		}
+		// Preserve the first expired-window diagnosis, including a camera
+		// conflict or missing slot. Later rounds cannot explain the original loss.
+		if e.Status == "MISSED_WINDOW" || e.Status == "CANCELLED" || e.Status == "FAILED" {
+			continue
+		}
 		e.Time = 0
 		if !validRoundClock(e.Clock) {
 			e.Status = "WAITING_CLOCK"
@@ -182,8 +216,12 @@ func (a *Service) resolveRoundEventsLocked(now int64) {
 			continue
 		}
 		if sample.Clock.Round > e.Clock.Round || sample.Clock.Round == e.Clock.Round && phaseOrder(sample.Clock.Phase) > phaseOrder(e.Clock.Phase) {
+			prior := e.Reason
 			e.Status = "MISSED_WINDOW"
 			e.Reason = "B 路已越过目标回合或阶段"
+			if prior != "" {
+				e.Reason += "；此前：" + prior
+			}
 			continue
 		}
 		if predicted, ok := clockPrediction(sample, *e); ok {
@@ -414,7 +452,7 @@ func (a *Service) checkRoundJobLocked(j Job) error {
 	}
 	sample := a.roundClocks["b"]
 	if sample.At == 0 || nowMS()-sample.At > 1500 || sample.ProgressAt == 0 || nowMS()-sample.ProgressAt > 1500 {
-		return errors.New("B 路倒计时未推进或已断流")
+		return fmt.Errorf("B 路倒计时未推进或已断流：sample_at=%d progress_at=%d now=%d round=%d phase=%s remaining=%.3f", sample.At, sample.ProgressAt, nowMS(), sample.Clock.Round, sample.Clock.Phase, sample.Clock.Remaining)
 	}
 	for _, e := range j.Events {
 		if !validRoundClock(e.Clock) {

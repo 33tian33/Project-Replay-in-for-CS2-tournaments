@@ -52,6 +52,7 @@ func TestRoundClockResolution(t *testing.T) {
 	}{
 		{4, "live", now, "WAITING_CLOCK"}, {5, "bomb", now, "MISSED_WINDOW"}, {6, "live", now, "MISSED_WINDOW"}, {5, "live", 0, "WAITING_CLOCK"},
 	} {
+		a.s.Events = []Event{clockEvent("event", 5, "live", 75)}
 		a.roundClocks["b"] = clockSample{RoundClock{tt.round, tt.phase, 80}, now, tt.progress}
 		a.resolveRoundEventsLocked(now)
 		if a.s.Events[0].Time != 0 || a.s.Events[0].Status != tt.want {

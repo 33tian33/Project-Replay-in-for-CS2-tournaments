@@ -11,6 +11,10 @@ const cameraAfterMS int64 = 150
 
 func switchSetupMS(c Config) int64 { return max(200, int64(c.Setup*1000)) }
 
+// OBS startup includes the websocket handshake, HUD setup and encoder startup.
+// It must not share the much shorter in-recording camera-switch budget.
+func recordingSetupMS(c Config) int64 { return max(300, int64(c.Setup*1000)) }
+
 type cameraShot struct {
 	Player             string
 	Switch, Ready, End int64

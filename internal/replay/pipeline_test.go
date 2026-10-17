@@ -144,9 +144,9 @@ func TestPlayerSwitchDoesNotWaitForGSI(t *testing.T) {
 	if got := <-commands; got != "spec_player 14; "+fullHUDCommand+"\n" {
 		t.Fatal(got)
 	}
-	// No stale observation may validate a clip once the protected window starts.
+	// No stale observation may validate a clip once exported footage starts.
 	pc := m.(*playerCamera)
-	pc.job.Start = nowMS() - 1
+	pc.job.Start = nowMS() - int64(a.s.Config.Guard*1000) - 1
 	if err := pc.Check(); err == nil {
 		t.Fatal("accepted wrong target")
 	}

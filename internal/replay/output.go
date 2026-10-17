@@ -474,6 +474,9 @@ func (a *Service) outputRoutes(mux, api *http.ServeMux) {
 				if p.Error == "load timeout" {
 					a.outputError = "媒体加载超时，已恢复透明"
 				}
+				if p.Error == "playback stalled" {
+					a.outputError = "媒体播放进度停滞超过 3 秒，已恢复透明"
+				}
 				a.logLocked("warn", a.outputError)
 				a.output = OutputSession{}
 			} else {

@@ -16,6 +16,7 @@ import (
 type Service struct {
 	playerMapping     *playerMapping
 	gotvReconnect     CS2Launch
+	gotvSentAt        int64
 	gotvManualSendKey string
 	mappingBusy       bool
 	phaseAnchors      map[string]clockSample
@@ -238,7 +239,20 @@ func (a *Service) Close() {
 }
 
 func (a *Service) logLocked(level, message string) {
-	a.s.Logs = append(a.s.Logs, Log{nowMS(), level, message})
+	entry := Log{nowMS(), level, message}
+	// Keep a bounded disk history even when the dashboard's 200 entries roll off.
+	if a.dir != "" {
+		path := filepath.Join(a.dir, "runtime.jsonl")
+		if info, err := os.Stat(path); err == nil && info.Size() >= 8<<20 {
+			os.Remove(path + ".1")
+			os.Rename(path, path+".1")
+		}
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+			_ = json.NewEncoder(f).Encode(entry)
+			_ = f.Close()
+		}
+	}
+	a.s.Logs = append(a.s.Logs, entry)
 	if len(a.s.Logs) > 200 {
 		a.s.Logs = a.s.Logs[len(a.s.Logs)-200:]
 	}
@@ -441,7 +455,7 @@ func (a *Service) tick() {
 	if first.RoundTiming {
 		lead = 350
 	} // Track B countdown until just before capture.
-	if start-int64(c.Setup*1000) > t+lead {
+	if start-recordingSetupMS(c) > t+lead {
 		a.mu.Unlock()
 		return
 	}
@@ -541,7 +555,7 @@ func (a *Service) jobUpdate(jobID, status, reason string, artifacts []Artifact) 
 	a.saveLocked()
 }
 func (a *Service) waitUntil(t int64) error {
-	wait := time.Until(time.UnixMilli(t))
+	wait := time.Duration(t-nowMS()) * time.Millisecond
 	if wait <= 0 {
 		return nil
 	}
