@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist'
 GO = os.environ.get('GO', 'go')
-VERSION = '0.2.9'
+VERSION = '0.2.10'
 TARGETS = [('windows', 'amd64'), ('linux', 'arm64'), ('linux', 'amd64')]
 DIST.mkdir(exist_ok=True)
 artifacts = []
