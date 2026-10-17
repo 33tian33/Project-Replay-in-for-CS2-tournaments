@@ -35,7 +35,7 @@ func (a *Service) startHeadlessCS2WithMove(move bool) error {
 	if a.role != "agent" {
 		return errors.New("请在 Linux Agent 启动 CS2")
 	}
-	if a.active || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" {
+	if a.gotvReconnect.Phase == "starting" || a.active || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" {
 		return errors.New("录制、Demo 测试或游戏启动正在进行，请先完成或停止")
 	}
 	port, err := launchPort(a.s.Config.NetCon)

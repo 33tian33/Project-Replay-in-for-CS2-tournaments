@@ -23,6 +23,9 @@ func parseGOTV(raw string) (address string, password *string, err error) {
 	}
 	raw = strings.TrimSpace(strings.TrimSuffix(raw, ";"))
 	parts := strings.Split(raw, ";")
+	if len(parts) == 2 && gotvPasswordCommand.MatchString(strings.TrimSpace(parts[0])) {
+		parts[0], parts[1] = parts[1], parts[0]
+	}
 	if len(parts) > 2 {
 		return "", nil, invalid
 	}
@@ -85,11 +88,24 @@ func normalizeGOTV(c *Config, old Config) error {
 }
 
 type gotvRequest struct {
+	Force    bool    `json:"force,omitempty"`
 	GOTV     string  `json:"gotv"`
 	Password *string `json:"password,omitempty"`
 }
 
 func (a *Service) gotvRoutes(api *http.ServeMux) {
+	api.HandleFunc("GET /api/gotv-status", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		c, status := a.s.Config, a.gotvReconnect
+		a.mu.Unlock()
+		if a.role == "director" {
+			if err := remoteCall(r.Context(), c, "GET", "/api/gotv-status", nil, &status); err != nil {
+				fail(w, err)
+				return
+			}
+		}
+		respond(w, 200, status)
+	})
 	api.HandleFunc("POST /api/connect-gotv", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("agent") == "1" && a.role != "agent" {
 			fail(w, errors.New("连接目标必须是 Linux Agent"))
@@ -103,7 +119,7 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		c := a.s.Config
-		if a.active || a.pendingJobsLocked() || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" || c.Mode != "live" {
+		if !p.Force && (a.mappingBusy || a.gotvReconnect.Phase == "starting" || a.active || a.pendingJobsLocked() || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" || c.Mode != "live") {
 			fail(w, errors.New("请在真实模式下等待录制 / Demo 任务结束后连接 GOTV"))
 			return
 		}
@@ -127,13 +143,23 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 			c.GOTVPassword = *p.Password
 		}
 		if a.role == "director" {
-			if err := remoteCall(r.Context(), c, "POST", "/api/connect-gotv?agent=1", gotvRequest{GOTV: c.GOTV, Password: &c.GOTVPassword}, nil); err != nil {
+			if err := remoteCall(r.Context(), c, "POST", "/api/connect-gotv?agent=1", gotvRequest{GOTV: c.GOTV, Password: &c.GOTVPassword, Force: p.Force}, nil); err != nil {
 				fail(w, err)
 				return
 			}
 			a.s.Config.GOTV = c.GOTV
 			a.s.Config.GOTVPassword = c.GOTVPassword
+			a.gotvManualSendKey = c.RelayPair + "\x00" + c.GOTV + "\x00" + c.GOTVPassword
 		} else {
+			if p.Force {
+				if a.gotvReconnect.Phase == "starting" {
+					fail(w, errors.New("B 路正在处理重连，请稍候查看连接状态"))
+					return
+				}
+				a.beginGOTVReconnectLocked(c)
+				respond(w, http.StatusAccepted, map[string]string{"message": "B 路已接收重连请求，正在结束旧任务并重新连接", "gotv": c.GOTV})
+				return
+			}
 			release, err := resourceLock(c.SessionLock)
 			if err != nil {
 				fail(w, err)
@@ -158,6 +184,6 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 			fail(w, errors.New(a.storageErr))
 			return
 		}
-		respond(w, 200, map[string]string{"message": "Linux 连接命令已发送，请核验游戏画面；GSI 回合录制无需手工校准"})
+		respond(w, 200, map[string]string{"message": "B 路已接收连接请求，请查看 B 路连接状态或游戏画面", "gotv": c.GOTV})
 	})
 }

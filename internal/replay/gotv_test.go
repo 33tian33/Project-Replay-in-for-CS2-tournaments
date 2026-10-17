@@ -133,3 +133,96 @@ func TestInvalidGOTVDoesNotChangeConfiguration(t *testing.T) {
 		t.Fatal("invalid command changed settings")
 	}
 }
+
+func TestForcedGOTVReconnectCancelsAndWaitsForCamera(t *testing.T) {
+	b := demoService(t, "agent")
+	var commands func() []string
+	b.s.Config.NetCon, commands = demoConsole(t)
+	b.active = true
+	b.s.Jobs = []Job{{ID: "inflight", Status: "CAPTURING", End: nowMS() - 1}, {ID: "finished", Status: "READY"}}
+	b.s.Events = []Event{{ID: "event", JobID: "inflight", Status: "CAPTURING"}}
+	b.localDemo = LocalDemo{Phase: "armed", Due: nowMS() + 1000}
+	b.refreshPlayerMappingLocked(false)
+	b.playerMapping.Slots["player"] = 14
+	before := b.s.Config.Epoch
+	b.captureMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			b.captureMu.Unlock()
+		}
+	}()
+	w := request(t, b, "POST", "/api/connect-gotv", gotvRequest{GOTV: "connect game.example:27020;password secret", Force: true}, "", "")
+	if w.Code != 202 {
+		t.Fatal(w.Body.String())
+	}
+	b.mu.Lock()
+	if b.s.Config.Epoch != before+1 || b.s.Jobs[0].Status != "CANCELLED" || b.s.Jobs[1].Status != "READY" || b.localDemo.Phase != "" || len(b.playerMapping.Slots) != 0 {
+		t.Error("old session not invalidated")
+	}
+	b.mu.Unlock()
+	if got := b.captureSnapshot(Job{ID: "inflight"}, true); got.Status != "CANCELLED" {
+		t.Fatal("cancellation overwritten", got.Status)
+	}
+	b.jobUpdate("inflight", "READY", "late result", nil)
+	if len(commands()) != 0 {
+		t.Fatal("reconnect did not wait for camera release")
+	}
+	b.captureMu.Unlock()
+	locked = false
+	waitGOTVCommand(t, commands, `disconnect; spec_show_xray 1; password "secret"; connect game.example:27020`)
+	for until := time.Now().Add(time.Second); time.Now().Before(until); {
+		b.mu.Lock()
+		phase := b.gotvReconnect.Phase
+		b.mu.Unlock()
+		if phase == "sent" {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("reconnect not completed")
+}
+
+func TestDirectorCanReconnectWhileBusy(t *testing.T) {
+	b := demoService(t, "agent")
+	var commands func() []string
+	b.s.Config.NetCon, commands = demoConsole(t)
+	server := httptest.NewServer(b.Handler())
+	defer server.Close()
+	a := testService(t, "director")
+	a.active = true
+	a.localDemo = LocalDemo{Phase: "running"}
+	a.s.Config.WorkerURL = server.URL
+	// Even demo mode on A must not prevent an explicit B reconnect.
+	w := request(t, a, "POST", "/api/connect-gotv", gotvRequest{GOTV: `password "abc def"; connect game.example:27020`, Force: true}, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	waitGOTVCommand(t, commands, `disconnect; spec_show_xray 1; password "abc def"; connect game.example:27020`)
+	if strings.Contains(w.Body.String(), "abc def") {
+		t.Fatal("response exposed password")
+	}
+}
+
+func TestInvalidForcedGOTVDoesNotCancelCapture(t *testing.T) {
+	a := testService(t, "agent")
+	a.s.Jobs = []Job{{ID: "active", Status: "CAPTURING"}}
+	epoch := a.s.Config.Epoch
+	w := request(t, a, "POST", "/api/connect-gotv", gotvRequest{GOTV: "host:27020;quit", Force: true}, "", "")
+	if w.Code != 400 || a.s.Config.Epoch != epoch || a.s.Jobs[0].Status != "CAPTURING" {
+		t.Fatal("invalid input disrupted recording")
+	}
+}
+
+func TestDirectorReadsBReconnectStatus(t *testing.T) {
+	b := testService(t, "agent")
+	b.gotvReconnect = CS2Launch{Phase: "sent", Message: "GOTV 重连命令已发送，等待新的比赛 GSI"}
+	server := httptest.NewServer(b.Handler())
+	defer server.Close()
+	a := testService(t, "director")
+	a.s.Config.WorkerURL = server.URL
+	w := request(t, a, "GET", "/api/gotv-status", nil, "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"phase":"sent"`) {
+		t.Fatal(w.Body.String())
+	}
+}

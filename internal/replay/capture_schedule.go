@@ -87,6 +87,9 @@ func (a *Service) extendCapturesLocked(c Config, now int64) {
 	})
 	for _, i := range indices {
 		e := &a.s.Events[i]
+		if c.Mode == "live" && c.requirePlayerMappings && c.Mappings[e.Player] == 0 {
+			continue
+		}
 		if e.JobID != "" || e.Time == 0 || e.Utility != nil || e.Epoch != c.Epoch || e.Match != c.Match || e.Map != c.Map || e.Uncertainty > c.Guard {
 			continue
 		}
@@ -108,6 +111,9 @@ func (a *Service) extendCapturesLocked(c Config, now int64) {
 			var candidates []Event
 			planNow := now
 			for _, candidate := range a.s.Events {
+				if c.Mode == "live" && c.requirePlayerMappings && c.Mappings[candidate.Player] == 0 {
+					continue
+				}
 				if candidate.JobID != "" || candidate.Utility != nil || candidate.Round != e.Round || candidate.Time < last.Time || !compatible(last, candidate, c) {
 					continue
 				}
@@ -173,7 +179,7 @@ func (a *Service) captureSnapshot(j Job, stopIfElapsed bool) Job {
 	defer a.mu.Unlock()
 	for i := range a.s.Jobs {
 		if a.s.Jobs[i].ID == j.ID {
-			if stopIfElapsed && nowMS() >= a.s.Jobs[i].End {
+			if stopIfElapsed && a.s.Jobs[i].Status != "CANCELLED" && nowMS() >= a.s.Jobs[i].End {
 				a.s.Jobs[i].Status = "STOPPING"
 			}
 			return jsonCopy(a.s.Jobs[i])
@@ -212,4 +218,34 @@ func (a *Service) timingRoutes(api *http.ServeMux) {
 		}
 		respond(w, 200, map[string]bool{"ok": true})
 	})
+}
+
+// Adjacent kills on the same continuous POV form one clip, never joining
+// across an intervening camera cut, utility shot, or round boundary.
+func clipGroups(j Job) [][]Event {
+	var groups [][]Event
+	for _, e := range j.Events {
+		if len(groups) > 0 {
+			g := groups[len(groups)-1]
+			last := g[len(g)-1]
+			if e.Utility == nil && last.Utility == nil && sameTarget(last, e) && e.Round == last.Round && e.Time >= last.Time && e.Time-last.Time <= 3000 {
+				groups[len(groups)-1] = append(g, e)
+				continue
+			}
+		}
+		groups = append(groups, []Event{e})
+	}
+	return groups
+}
+
+func (a Artifact) includesEvent(id string) bool {
+	if a.EventID == id {
+		return true
+	}
+	for _, e := range a.EventIDs {
+		if e == id {
+			return true
+		}
+	}
+	return false
 }

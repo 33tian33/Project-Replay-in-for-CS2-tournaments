@@ -101,9 +101,9 @@ func Plan(events []Event, jobs []Job, c Config, now int64) []Event {
 		case e.Player == "":
 			e.Status = "IDENTITY_UNKNOWN"
 			e.Reason = "目标身份未知"
-		case c.Mode == "live" && e.Utility == nil && c.Mappings[e.Player] == 0 && !e.RoundTiming:
+		case c.Mode == "live" && e.Utility == nil && c.Mappings[e.Player] == 0 && (!e.RoundTiming || c.requirePlayerMappings):
 			e.Status = "IDENTITY_UNKNOWN"
-			e.Reason = "B 路命令槽位未确认"
+			e.Reason = "等待 B 路自动确认命令槽位"
 		case e.Uncertainty > c.Guard:
 			e.Status = "UNCERTAIN"
 			e.Reason = "时间误差超过保护量"

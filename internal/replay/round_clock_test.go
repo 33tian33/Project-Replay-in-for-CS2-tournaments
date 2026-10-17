@@ -78,7 +78,7 @@ func TestRoundClockMissingMalformedAndPhaseTransition(t *testing.T) {
 		t.Fatal(a.s.Events)
 	}
 }
-func TestRoundEventIdempotencyAndSafePlayerNames(t *testing.T) {
+func TestRoundEventIdempotencyAndConfirmedPlayerSlots(t *testing.T) {
 	a := testService(t, "agent")
 	a.s.Config.Mode = "live"
 	e := clockEvent("round-event", 1, "live", 85)
@@ -95,16 +95,20 @@ func TestRoundEventIdempotencyAndSafePlayerNames(t *testing.T) {
 		t.Fatal("changed event accepted")
 	}
 	a.previous["b"] = clockGSI(1, 0, "live", 90)
-	cmd, err := a.playerCommandLocked(Job{Player: "A"}, a.s.Config)
-	if err != nil || cmd != `spec_player "Player"` {
-		t.Fatal(cmd, err)
+	// A valid name and observer slot must not silently become a command slot.
+	obj(obj(a.previous["b"], "allplayers"), "A")["observer_slot"] = float64(3)
+	if _, err := a.playerCommandLocked(Job{Player: "A", Slot: 14}, a.s.Config); err == nil {
+		t.Fatal("used an unconfirmed name, observer slot, or incoming job slot")
 	}
-	for _, name := range []string{"x;quit", "x\nquit", `x"`, "14"} {
+	a.s.Config.Mappings["A"] = 14
+	for _, name := range []string{"Player", "5hr 神奇小纯", "x;quit", "14", ""} {
 		obj(obj(a.previous["b"], "allplayers"), "A")["name"] = name
-		if _, err := a.playerCommandLocked(Job{Player: "A"}, a.s.Config); err == nil {
-			t.Fatal(name)
+		cmd, err := a.playerCommandLocked(Job{Player: "A"}, a.s.Config)
+		if err != nil || cmd != "spec_player 14" {
+			t.Fatal(cmd, err)
 		}
 	}
+
 }
 func TestRoundDefaultsAndManualPause(t *testing.T) {
 	a, err := New(t.TempDir(), "director")
@@ -126,13 +130,14 @@ func TestRoundDefaultsAndManualPause(t *testing.T) {
 		t.Fatal("manual pause lost")
 	}
 }
-func TestRoundClockLivePipelineWithoutCalibrationTicksOrMappings(t *testing.T) {
+func TestRoundClockLivePipelineWithConfirmedSlots(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell encoder fixture")
 	}
 	worker := testService(t, "agent")
 	worker.s.Config.Mode = "live"
 	worker.s.Config.Strict = true
+	worker.s.Config.Mappings["A"] = 14
 	worker.s.Config.SessionLock = filepath.Join(t.TempDir(), "capture.lock")
 	// Synthetic encoder output; real job execution and all HTTP/OBS handshakes remain exercised.
 	dir := t.TempDir()
@@ -159,7 +164,7 @@ func TestRoundClockLivePipelineWithoutCalibrationTicksOrMappings(t *testing.T) {
 			}
 			line, _ := bufio.NewReader(c).ReadString('\n')
 			c.Close()
-			if strings.HasPrefix(line, `spec_player "Player"`) {
+			if strings.HasPrefix(line, `spec_player 14;`) {
 				switched.Store(true)
 			}
 		}

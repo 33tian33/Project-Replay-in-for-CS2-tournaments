@@ -47,6 +47,7 @@ func (a *Service) relayLoop() {
 	for {
 		a.mu.Lock()
 		c := a.s.Config
+		manualGOTV := a.gotvManualSendKey
 		a.mu.Unlock()
 		key := relayIdentity(c)
 		if key != identity {
@@ -98,6 +99,9 @@ func (a *Service) relayLoop() {
 
 		if c.ConnectionMode == "relay" && c.RelayPair != "" && a.role == "director" && c.AutoSendGOTV && c.GOTV != "" && c.Mode == "live" {
 			sendKey := c.RelayPair + "\x00" + c.GOTV + "\x00" + c.GOTVPassword
+			if sendKey == manualGOTV {
+				sentGOTV = sendKey
+			}
 			if sendKey != sentGOTV {
 				sentGOTV = sendKey // Never blindly repeat a potentially executed connect command.
 				err := remoteCall(a.ctx, c, "POST", "/api/connect-gotv?agent=1", gotvRequest{GOTV: c.GOTV, Password: &c.GOTVPassword}, nil)

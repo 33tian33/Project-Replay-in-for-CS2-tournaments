@@ -95,7 +95,7 @@ func (a *Service) setHUD(visible bool) error {
 			return errors.New("录制任务已锁定，请等待完成后切换 HUD")
 		}
 	}
-	if a.active && !a.pendingJobsLocked() || a.localDemo.Phase == "armed" {
+	if a.gotvReconnect.Phase == "starting" || a.mappingBusy || a.active && !a.pendingJobsLocked() || a.localDemo.Phase == "armed" {
 		return errors.New("录制任务已锁定，请等待完成后切换 HUD")
 	}
 	c := a.s.Config

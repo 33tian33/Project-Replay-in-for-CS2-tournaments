@@ -211,10 +211,18 @@ func (a *Service) runRemote(j Job, c Config) {
 	a.mu.Unlock()
 }
 func (a *Service) download(c Config, art *Artifact) error {
+	// Multiple round events may reference one multi-kill clip. Serialize the
+	// shared partial file and reuse an already verified download.
+	a.downloadMu.Lock()
+	defer a.downloadMu.Unlock()
 	if !validID(art.ID) || art.Size <= 0 || art.Size > 1<<30 || len(art.SHA256) != 64 {
 		return errors.New("节点素材元数据无效")
 	}
 	path := filepath.Join(a.dir, "media", art.ID+".mp4")
+	if hash, size, err := fileHash(path); err == nil && hash == art.SHA256 && size == art.Size {
+		art.Path = path
+		return nil
+	}
 	part := path + ".part"
 	target, e := remoteURL(c, "/api/media/"+art.ID)
 	if e != nil {
@@ -335,8 +343,8 @@ func (a *Service) acceptJob(j Job) (Job, error) {
 			return existing, nil
 		}
 	}
-	c := a.s.Config
-	if a.localDemo.Phase == "armed" {
+	c := a.captureConfigLocked()
+	if a.gotvReconnect.Phase == "starting" || a.mappingBusy || a.localDemo.Phase == "armed" {
 		return j, errors.New("录制资源已被占用")
 	}
 	if a.storageErr != "" {

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "0.2.7"
+const Version = "0.2.9"
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 func id() string {
@@ -26,13 +26,14 @@ func id() string {
 }
 
 type Config struct {
-	ConnectionMode string `json:"connection_mode"`
-	RelayURL       string `json:"relay_url"`
-	RelayDevice    string `json:"relay_device"`
-	RelayGroup     string `json:"relay_group"`
-	RelayName      string `json:"relay_name"`
-	RelayAutoPair  bool   `json:"relay_auto_pair"`
-	RelayPair      string `json:"relay_pair,omitempty"`
+	requirePlayerMappings bool
+	ConnectionMode        string `json:"connection_mode"`
+	RelayURL              string `json:"relay_url"`
+	RelayDevice           string `json:"relay_device"`
+	RelayGroup            string `json:"relay_group"`
+	RelayName             string `json:"relay_name"`
+	RelayAutoPair         bool   `json:"relay_auto_pair"`
+	RelayPair             string `json:"relay_pair,omitempty"`
 
 	Teams           TeamSettings   `json:"teams"`
 	TestMode        bool           `json:"test_mode"`
@@ -124,10 +125,15 @@ func (c Config) validate() error {
 			return errors.New("无效数值")
 		}
 	}
+	slots := map[int]string{}
 	for s, n := range c.Mappings {
 		if s == "" || n < 1 || n > 128 {
 			return errors.New("身份映射必须是非空 SteamID 与 1–128 命令槽位")
 		}
+		if other, exists := slots[n]; exists {
+			return fmt.Errorf("命令槽位 %d 同时分配给 %s 和 %s，请核对 B 路映射", n, other, s)
+		}
+		slots[n] = s
 	}
 	return nil
 }
@@ -193,6 +199,7 @@ type Artifact struct {
 	CameraEvidence []trackingSample `json:"camera_evidence,omitempty"`
 	ID             string           `json:"id"`
 	EventID        string           `json:"event_id"`
+	EventIDs       []string         `json:"event_ids,omitempty"`
 	JobID          string           `json:"job_id"`
 	Name           string           `json:"name"`
 	Player         string           `json:"player"`

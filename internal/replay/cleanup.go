@@ -47,7 +47,7 @@ func (a *Service) cleanupRoutes(api *http.ServeMux) {
 		defer a.maintenance.Unlock()
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.active || a.pendingJobsLocked() || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" || a.playback != "" || a.output.ID != "" {
+		if a.gotvReconnect.Phase == "starting" || a.mappingBusy || a.active || a.pendingJobsLocked() || a.cs2Launch.Phase == "starting" || a.localDemo.Phase == "armed" || a.localDemo.Phase == "running" || a.playback != "" || a.output.ID != "" {
 			fail(w, errors.New("请先停止 Demo / 回放，等待录制和回传完成后清理"))
 			return
 		}

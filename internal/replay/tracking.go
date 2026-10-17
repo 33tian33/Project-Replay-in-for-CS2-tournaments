@@ -88,8 +88,31 @@ func (m *playerCamera) Check() error {
 	if nowMS() < m.job.Start && a.s.Config.Epoch == m.job.Epoch {
 		return nil
 	}
-	if a.observedAt <= m.switchAt || a.observed != m.job.Player || nowMS()-a.observedAt >= 1500 || a.s.Config.Epoch != m.job.Epoch {
-		return errors.New("WRONG_TARGET：录制期间目标变化、GSI 断流或时间线失效")
+	// Keep each failure distinguishable and preserve the observation that caused
+	// it: a stale target is not evidence that the camera actually switched.
+	reason := ""
+	switch {
+	case a.s.Config.Epoch != m.job.Epoch:
+		reason = "时间线失效"
+	case a.observedAt <= m.switchAt:
+		reason = "切镜后未收到新的 B 路观战确认"
+	case nowMS()-a.observedAt >= 1500:
+		reason = "B 路观战数据超时（1500ms）"
+	case a.observed == "":
+		reason = "B 路 GSI 缺少观战目标"
+	case a.observed != m.job.Player:
+		reason = "录制期间观战目标不匹配"
+		// A reconnect can replace a command slot without changing the roster.
+		// Discard only automatic evidence; explicit user overrides remain intact.
+		if a.playerMapping != nil && m.job.Slot > 0 && a.s.Config.Mappings[m.job.Player] == 0 && a.playerMapping.Slots[m.job.Player] == m.job.Slot {
+			delete(a.playerMapping.Slots, m.job.Player)
+			a.playerMapping.Phase = "waiting"
+			a.playerMapping.Message = "目标核验不一致，等待重新确认自动槽位"
+			a.playerMapping.retryAt = nowMS() + 5000
+		}
+	}
+	if reason != "" {
+		return fmt.Errorf("WRONG_TARGET：%s；expected=%q observed=%q observed_at=%d switch_at=%d age_ms=%d epoch=%d/%d", reason, m.job.Player, a.observed, a.observedAt, m.switchAt, nowMS()-a.observedAt, a.s.Config.Epoch, m.job.Epoch)
 	}
 	return nil
 }

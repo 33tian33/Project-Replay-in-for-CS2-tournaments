@@ -3,9 +3,69 @@ package replay
 import (
 	"bufio"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestPlayerCameraFailureDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name, observed, want string
+		age, switchAge       int64
+		epoch                int
+	}{
+		{"unconfirmed", "old", "切镜后未收到", 100, 50, 1},
+		{"stale", "old", "观战数据超时", 1600, 2000, 1},
+		{"missing", "", "缺少观战目标", 10, 100, 1},
+		{"mismatch", "old", "观战目标不匹配", 10, 100, 1},
+		{"epoch", "target", "时间线失效", 10, 100, 2},
+		{"valid", "target", "", 10, 100, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testService(t, "agent")
+			now := nowMS()
+			a.s.Config.Epoch = tc.epoch
+			a.observed, a.observedAt = tc.observed, now-tc.age
+			m := &playerCamera{service: a, job: Job{Player: "target", Epoch: 1, Start: now - 1000}, switchAt: now - tc.switchAge}
+			err := m.Check()
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "expected=\"target\"") || !strings.Contains(err.Error(), "age_ms=") {
+				t.Fatalf("expected %q with observation evidence, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestCaptureRejectsUnmappedLaterTargetBeforeOBS(t *testing.T) {
+	a := testService(t, "agent")
+	c := a.s.Config
+	c.Mode = "live"
+	c.Mappings["A"] = 14
+	c.OBSURL = "invalid-obs-address"
+	j := Job{Match: c.Match, Map: c.Map, Epoch: c.Epoch, Player: "A", Start: nowMS() - 10,
+		Events: []Event{{Player: "A"}, {Player: "B"}}}
+	_, err := a.capture(j, c)
+	if err == nil || !strings.Contains(err.Error(), "IDENTITY_UNKNOWN") || !strings.Contains(err.Error(), `"B"`) {
+		t.Fatalf("expected unmapped B before any OBS operation, got %v", err)
+	}
+}
+
+func TestConfigRejectsDuplicateCommandSlots(t *testing.T) {
+	c := defaults()
+	c.Mappings = map[string]int{"A": 14, "B": 14}
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "同时分配") {
+		t.Fatalf("accepted ambiguous slot mapping: %v", err)
+	}
+	c.Mappings["B"] = 29
+	if err := c.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestAgentQueuesDisjointWindows(t *testing.T) {
 	a := testService(t, "agent")

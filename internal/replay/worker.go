@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,18 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 	if !valid {
 		return nil, errors.New("录制任务会话已失效")
 	}
+	// Validate every target before acquiring OBS or changing the HUD. A merged
+	// capture must not discover an unmapped later target halfway through recording.
+	if !j.Demo && j.Utility == nil {
+		if _, err := a.playerCommandLocked(j, c); err != nil {
+			return nil, err
+		}
+		for _, event := range j.Events {
+			if _, err := a.playerCommandLocked(Job{Player: event.Player}, c); err != nil {
+				return nil, err
+			}
+		}
+	}
 	for !a.captureMu.TryLock() {
 		if nowMS() >= j.Start {
 			return nil, errors.New("录制设备仍被占用，无法及时切换镜头")
@@ -50,6 +63,13 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 		if err := a.waitUntil(min(j.Start, nowMS()+10)); err != nil {
 			return nil, err
 		}
+	}
+	a.mu.Lock()
+	valid = a.s.Config.Epoch == j.Epoch && a.gotvReconnect.Phase != "starting"
+	a.mu.Unlock()
+	if !valid {
+		a.captureMu.Unlock()
+		return nil, errors.New("录制任务已取消或会话变化")
 	}
 	locked := true
 	defer func() {
@@ -64,6 +84,9 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 		a.jobUpdate(j.ID, "CAPTURING", "演示采集 · 不连接游戏和 OBS", nil)
 		for {
 			j = a.captureSnapshot(j, true)
+			if j.Status == "CANCELLED" {
+				return nil, errors.New("录制任务已取消")
+			}
 			if j.Status == "STOPPING" {
 				break
 			}
@@ -175,6 +198,9 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 		a.jobUpdate(j.ID, "CAPTURING", "切换镜头后立即录制；持续核验目标", nil)
 		for {
 			j = a.captureSnapshot(j, true)
+			if j.Status == "CANCELLED" {
+				return nil, errors.New("录制任务已取消")
+			}
 			if j.Status == "STOPPING" {
 				break
 			}
@@ -238,7 +264,12 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 	locked = false
 	a.jobUpdate(j.ID, "FINALIZING", "按实际镜头窗口生成击杀片段并校验 SHA-256", nil)
 	artifacts := []Artifact{}
-	for _, event := range j.Events {
+	for _, group := range clipGroups(j) {
+		event := group[0]
+		eventIDs := make([]string, len(group))
+		for i, e := range group {
+			eventIDs[i] = e.ID
+		}
 		artifactID := j.ID + "-" + event.ID
 		path := filepath.Join(a.dir, "media", artifactID+".mp4")
 		temp := path + ".tmp.mp4"
@@ -249,8 +280,9 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 				return nil, e
 			}
 		} else {
-			clipStart, clipEnd := eventClipBounds(j, event, c)
-			if clipStart > event.Time-cameraBeforeMS || clipEnd < event.Time+cameraAfterMS {
+			clipStart, _ := eventClipBounds(j, event, c)
+			_, clipEnd := eventClipBounds(j, group[len(group)-1], c)
+			if clipStart > event.Time-cameraBeforeMS || clipEnd < group[len(group)-1].Time+cameraAfterMS {
 				return nil, errors.New("素材未覆盖击杀的有效镜头窗口")
 			}
 			wantedDuration := float64(clipEnd-clipStart) / 1000
@@ -289,7 +321,7 @@ func (a *Service) capture(j Job, c Config) ([]Artifact, error) {
 		if j.Demo {
 			cameraQuality = "demo"
 		}
-		art := Artifact{Utility: event.Utility, CameraQuality: cameraQuality, CameraEvidence: cameraEvidence, ID: artifactID, EventID: event.ID, JobID: j.ID, Name: event.Name, Player: event.Player, Round: event.Round, Path: path, Size: size, SHA256: hash, Duration: duration, Quality: quality, Created: nowMS(), Demo: j.Demo}
+		art := Artifact{Utility: event.Utility, CameraQuality: cameraQuality, CameraEvidence: cameraEvidence, ID: artifactID, EventID: event.ID, EventIDs: eventIDs, JobID: j.ID, Name: event.Name, Player: event.Player, Round: event.Round, Path: path, Size: size, SHA256: hash, Duration: duration, Quality: quality, Created: nowMS(), Demo: j.Demo}
 		artifacts = append(artifacts, art)
 	}
 	return artifacts, nil
@@ -350,11 +382,20 @@ func fileHash(path string) (string, int64, error) {
 }
 func (a *Service) preflight() map[string]any {
 	a.mu.Lock()
-	c := jsonCopy(a.s.Config)
+	c := a.captureConfigLocked()
 	observed := a.observed
 	fresh := nowMS()-a.observedAt < 1500
+	missing := []string{}
+	for player := range obj(a.previous["b"], "allplayers") {
+		if _, err := a.playerCommandLocked(Job{Player: player}, c); err != nil {
+			missing = append(missing, player)
+		}
+	}
+	sort.Strings(missing)
 	a.mu.Unlock()
 	result := map[string]any{"mode": c.Mode, "gsi_fresh": fresh, "observed": observed, "calibrated": c.CalibratedUntil > nowMS(), "strict_supported": false, "utility_tracking_configured": c.TrackingMode == "native" || c.TrackingURL != "", "tracking_mode": c.TrackingMode}
+	result["missing_player_mappings"] = missing
+	result["player_mappings"] = c.Mappings
 	for key, exe := range map[string]string{"ffmpeg": c.FFmpeg, "ffprobe": c.FFprobe} {
 		p, e := exec.LookPath(exe)
 		if e != nil {

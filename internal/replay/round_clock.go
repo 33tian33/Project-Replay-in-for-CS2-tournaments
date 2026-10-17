@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 var errMapNotReady = errors.New("等待 Linux B 路 GSI 识别相同地图")
@@ -43,6 +42,10 @@ func validRoundClock(c *RoundClock) bool {
 }
 
 func roundOver(p map[string]any) bool {
+	// The countdown can reach the new freeze phase before round.phase clears.
+	if stringField(obj(p, "phase_countdowns"), "phase") == "freezetime" {
+		return false
+	}
 	return stringField(obj(p, "round"), "phase") == "over" || stringField(obj(p, "phase_countdowns"), "phase") == "over"
 }
 
@@ -59,6 +62,19 @@ func roundNumber(p, previous map[string]any, previousRound int) int {
 			return previousRound
 		}
 		return max(1, raw)
+	}
+	// The score/map counter can arrive one packet before either phase says
+	// "over". A continuously decreasing clock still belongs to the old round.
+	// Keep that identity for subsequent packets too, until freeze/new live.
+	old, known := gsiCount(previous, "map", "round")
+	phase := stringField(obj(p, "phase_countdowns"), "phase")
+	oldPhase := stringField(obj(previous, "phase_countdowns"), "phase")
+	if known && stringField(obj(p, "map"), "name") == stringField(obj(previous, "map"), "name") && previousRound > 0 && raw == previousRound && raw >= old && raw <= old+1 && (phase == "live" || phase == "bomb") && phase == oldPhase && !roundOver(previous) {
+		current, currentErr := strconv.ParseFloat(fmt.Sprint(obj(p, "phase_countdowns")["phase_ends_in"]), 64)
+		before, beforeErr := strconv.ParseFloat(fmt.Sprint(obj(previous, "phase_countdowns")["phase_ends_in"]), 64)
+		if currentErr == nil && beforeErr == nil && current >= 0 && current <= before && before-current <= 2 {
+			return previousRound
+		}
 	}
 	return raw + 1
 }
@@ -183,31 +199,14 @@ func (a *Service) resolveRoundEventsLocked(now int64) {
 	}
 }
 
-// Only a name obtained from the receiver's own fresh roster may be used.
+// Command slots are explicitly confirmed on B; GSI observer_slot is a
+// different namespace and must never be used as a spec_player argument.
 func (a *Service) playerCommandLocked(j Job, c Config) (string, error) {
-	if slot := c.Mappings[j.Player]; slot > 0 {
-		return fmt.Sprintf("spec_player %d", slot), nil
+	slot := c.Mappings[j.Player]
+	if slot < 1 || slot > 128 {
+		return "", fmt.Errorf("IDENTITY_UNKNOWN：B 路玩家 %q 尚未完成自动槽位确认；请查看 B 路自动映射状态或填写已核验的 mappings", j.Player)
 	}
-	p := obj(a.previous["b"], "allplayers")
-	name := stringField(obj(p, j.Player), "name")
-	if name == "" || strings.ContainsAny(name, "\";\\\r\n") {
-		return "", errors.New("B 路缺少安全可用的玩家名称，请提供已确认槽位")
-	}
-	if _, err := strconv.ParseFloat(name, 64); err == nil {
-		return "", errors.New("纯数字玩家名需使用已确认槽位")
-	}
-	for _, r := range name {
-		if r < 32 || r == 127 {
-			return "", errors.New("玩家名含控制字符")
-		}
-	}
-	for steam, raw := range p {
-		v, _ := raw.(map[string]any)
-		if steam != j.Player && strings.EqualFold(stringField(v, "name"), name) {
-			return "", errors.New("B 路存在同名玩家，请提供已确认槽位")
-		}
-	}
-	return "spec_player \"" + name + "\"", nil
+	return fmt.Sprintf("spec_player %d", slot), nil
 }
 
 func (a *Service) acceptRoundEvent(e Event) (Event, error) {
@@ -379,7 +378,7 @@ func (a *Service) runRoundRemote(j Job, c Config) {
 			a.jobUpdate(j.ID, "TRANSFERRING", "下载节点素材并校验", nil)
 			var arts []Artifact
 			for _, art := range state.Artifacts {
-				if art.EventID != e.ID {
+				if !art.includesEvent(e.ID) {
 					continue
 				}
 				if err := a.download(c, &art); err != nil {

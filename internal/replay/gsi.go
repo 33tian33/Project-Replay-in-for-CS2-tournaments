@@ -66,8 +66,17 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 	t := nowMS()
 	gameMap := stringField(obj(payload, "map"), "name")
 	previousRound := a.gsiRound[side] + 1
-	round := roundNumber(payload, a.previous[side], previousRound) - 1
+	roundBaseline := a.previous[side]
+	if a.gsiSeen[side] > 0 && t-a.gsiSeen[side] > 5000 && !roundOver(payload) {
+		// A whole round may have passed during an outage; a similar countdown
+		// is no longer evidence of a continuous end-of-round packet sequence.
+		roundBaseline = nil
+	}
+	round := roundNumber(payload, roundBaseline, previousRound) - 1
 	if gameMap == "" {
+		if side == "b" {
+			a.refreshPlayerMappingLocked(true)
+		}
 		// Menu/loading snapshots must not create kills against the last known map.
 		delete(a.previous, side)
 		delete(a.roundClocks, side)
@@ -110,6 +119,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		delete(a.phaseAnchors, side)
 		a.logLocked("warn", "GSI 断流后恢复：保留待录任务，重新建立计数和时钟基线")
 	}
+	resetMapping := a.gsiSeen[side] > 0 && t-a.gsiSeen[side] > 5000
 	a.updateRoundClockForRoundLocked(side, payload, t, round+1)
 	a.gsiMap[side] = gameMap
 	a.gsiSeen[side] = t
@@ -121,6 +131,10 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		a.previous[side] = payload
 		a.observed = stringField(obj(payload, "player"), "steamid")
 		a.observedAt = t
+		a.refreshPlayerMappingLocked(resetMapping)
+		if a.gotvReconnect.Phase == "sent" && a.observed != "" && len(obj(payload, "allplayers")) > 0 {
+			a.gotvReconnect = CS2Launch{Phase: "receiving", Message: "重连后已收到比赛 GSI，正在核验时钟与槽位"}
+		}
 		return nil
 	}
 	a.detectOutputLocked(payload)
