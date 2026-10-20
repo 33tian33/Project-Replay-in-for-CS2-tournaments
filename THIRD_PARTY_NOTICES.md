@@ -32,6 +32,11 @@ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
+## github.com/jezek/xgb v1.3.1 — BSD-style license
+
+Used by the Linux headless CS2 window guard. License, author and contributor
+notices are included in `third_party_licenses/github.com_jezek_xgb@v1.3.1/`.
+
 ## Go runtime and standard library — BSD-3-Clause
 
 Copyright (c) 2009 The Go Authors. All rights reserved.

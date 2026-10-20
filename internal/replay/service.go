@@ -14,6 +14,9 @@ import (
 )
 
 type Service struct {
+	presentationHost  string
+	startupHUDPending bool
+	headlessWindow    CS2Launch
 	playerMapping     *playerMapping
 	gotvReconnect     CS2Launch
 	gotvSentAt        int64
@@ -152,6 +155,11 @@ func New(dir, role string) (*Service, error) {
 		}
 		a.s.HighlightsVersion = 1
 	}
+	if role == "agent" {
+		// Each recording session starts with bundled Astra, even after a custom HUD.
+		// Keep the previous source name so OBS can disable it during installation.
+		a.s.HUD = HUDSettings{Mode: "astra"}.normalized()
+	}
 	a.s.HUD = a.s.HUD.normalized()
 	if a.s.HUDActiveSource != "" {
 		a.s.TeamHUD = true
@@ -279,7 +287,7 @@ func (a *Service) snapshot() map[string]any {
 	if a.role == "agent" {
 		side = "b"
 	}
-	return map[string]any{"gotv_reconnect": a.gotvReconnect, "player_mapping": jsonCopy(a.playerMapping), "relay": a.relayState, "gsi": jsonCopy(a.gsiDiagnostics), "hud_import": a.hudImport, "obs_launch": a.obsLaunch, "cs2_launch": a.cs2Launch, "local_demo": a.localDemo, "output": a.output, "output_online": nowMS()-a.outputSeen < 3000, "output_error": a.outputError, "hotkey_status": a.hotkeyStatus, "current_round": a.gsiRound[side] + 1, "output_url": "/output.html", "version": Version, "role": a.role, "state": s, "now": nowMS(), "observed": a.observed, "observed_at": a.observedAt, "round_clocks": jsonCopy(a.roundClocks), "storage_error": a.storageErr, "playback": a.playback, "remote_at": a.remoteAt, "remote_uncertainty_ms": a.remoteUncertainty}
+	return map[string]any{"headless_window": a.headlessWindow, "gotv_reconnect": a.gotvReconnect, "player_mapping": jsonCopy(a.playerMapping), "relay": a.relayState, "gsi": jsonCopy(a.gsiDiagnostics), "hud_import": a.hudImport, "obs_launch": a.obsLaunch, "cs2_launch": a.cs2Launch, "local_demo": a.localDemo, "output": a.output, "output_online": nowMS()-a.outputSeen < 3000, "output_error": a.outputError, "hotkey_status": a.hotkeyStatus, "current_round": a.gsiRound[side] + 1, "output_url": "/output.html", "version": Version, "role": a.role, "state": s, "now": nowMS(), "observed": a.observed, "observed_at": a.observedAt, "round_clocks": jsonCopy(a.roundClocks), "storage_error": a.storageErr, "playback": a.playback, "remote_at": a.remoteAt, "remote_uncertainty_ms": a.remoteUncertainty}
 }
 func (a *Service) configure(c Config) error {
 	a.mu.Lock()

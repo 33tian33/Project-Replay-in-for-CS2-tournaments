@@ -99,6 +99,7 @@ func (a *Service) hudSettingsRoutes(api *http.ServeMux) {
 			return
 		}
 		a.s.HUD = h
+		a.startupHUDPending = false
 		a.saveLocked()
 		if a.storageErr != "" {
 			fail(w, errors.New(a.storageErr))
@@ -277,6 +278,18 @@ func enforceSingleHUD(o *obs, root, input, previous string, itemID float64) erro
 
 func (a *Service) prepareRecordingHUD(o *obs, c Config) error {
 	a.mu.Lock()
+	if a.startupHUDPending {
+		// The capture worker already holds the session lock. Apply on its OBS
+		// connection before StartRecord rather than racing the startup retry.
+		_, input, err := installHUDSource(o, a.s.HUD, a.presentationHost, a.s.HUDActiveSource)
+		if err != nil {
+			a.mu.Unlock()
+			return err
+		}
+		a.s.HUDActiveSource, a.s.TeamHUD = input, true
+		a.startupHUDPending = false
+		a.saveLocked()
+	}
 	input, command := a.s.HUDActiveSource, a.recordingHUDCommandLocked()
 	a.mu.Unlock()
 	if input != "" {

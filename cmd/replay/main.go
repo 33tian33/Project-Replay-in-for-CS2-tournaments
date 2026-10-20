@@ -44,6 +44,7 @@ func main() {
 			log.Printf("自动安装 GSI：%v", err)
 		}
 	}
+	app.StartPresentation(ln.Addr().String())
 	app.Start()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	address := "http://127.0.0.1:" + port + "/"

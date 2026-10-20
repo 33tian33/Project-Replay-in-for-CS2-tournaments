@@ -146,53 +146,60 @@ func (a *Service) hudRoutes(api *http.ServeMux) {
 			fail(w, errors.New("请在 Linux 空闲时安装 HUD"))
 			return
 		}
-		lock := a.s.Config.SessionLock
-		if lock == "" {
-			lock = filepath.Join(a.dir, "hud.lock")
-		}
-		release, err := resourceLock(lock)
+		result, err := a.applyHUDLocked(r.Host)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		defer release()
-		o, err := openOBS(a.s.Config)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		defer o.close()
-		previous := a.s.HUDActiveSource
-		if previous == "" && a.s.TeamHUD {
-			previous = "Project Replay Team HUD"
-		}
-		sceneName, input, err := installHUDSource(o, a.s.HUD, r.Host, previous)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		a.s.HUDActiveSource = input
-		a.s.HUD = a.s.HUD.normalized()
-		a.s.TeamHUD = true
-		a.hudHidden = false
-		warning := ""
-		if a.s.Config.Mode == "live" {
-			var gameErr error
-			if a.s.TeamHUD {
-				gameErr = hideGameUI(a.s.Config.NetCon)
-			} else {
-				gameErr = showGameUI(a.s.Config.NetCon)
-			}
-			if gameErr != nil {
-				warning = "HUD 已接入 OBS；游戏原生 HUD 状态尚未同步，启动 CS2 后请再次应用 HUD：" + gameErr.Error()
-			}
-		}
-		a.saveLocked()
-		if a.storageErr != "" {
-			fail(w, errors.New(a.storageErr))
-			return
-		}
-		a.logLocked("info", "已接入 HUD 源："+input)
-		respond(w, 200, map[string]any{"ok": true, "scene": sceneName, "source": input, "warning": warning})
+		respond(w, 200, result)
 	})
+}
+
+// Caller holds a.mu and has checked that no recording or launch is in progress.
+func (a *Service) applyHUDLocked(host string) (map[string]any, error) {
+	lock := a.s.Config.SessionLock
+	if lock == "" {
+		lock = filepath.Join(a.dir, "hud.lock")
+	}
+	release, err := resourceLock(lock)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	o, err := openOBS(a.s.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer o.close()
+	previous := a.s.HUDActiveSource
+	if previous == "" && a.s.TeamHUD {
+		previous = "Project Replay Team HUD"
+	}
+	sceneName, input, err := installHUDSource(o, a.s.HUD, host, previous)
+	if err != nil {
+		return nil, err
+	}
+	a.s.HUDActiveSource = input
+	a.s.HUD = a.s.HUD.normalized()
+	a.s.TeamHUD = true
+	a.hudHidden = false
+	warning := ""
+	if a.s.Config.Mode == "live" {
+		var gameErr error
+		if a.s.TeamHUD {
+			gameErr = hideGameUI(a.s.Config.NetCon)
+		} else {
+			gameErr = showGameUI(a.s.Config.NetCon)
+		}
+		if gameErr != nil {
+			warning = "HUD 已接入 OBS；游戏原生 HUD 状态尚未同步，启动 CS2 后请再次应用 HUD：" + gameErr.Error()
+		}
+	}
+	a.saveLocked()
+	if a.storageErr != "" {
+		return nil, errors.New(a.storageErr)
+	}
+	a.logLocked("info", "已接入 HUD 源："+input)
+	a.startupHUDPending = false
+	return map[string]any{"ok": true, "scene": sceneName, "source": input, "warning": warning}, nil
 }
