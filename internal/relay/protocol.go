@@ -69,7 +69,7 @@ func Allowed(method, path string) bool {
 	}
 	p := u.Path
 	if method == "GET" {
-		if p == "/api/time" || p == "/api/state" {
+		if p == "/api/time" || p == "/api/state" || p == "/api/gotv-status" {
 			return true
 		}
 		for _, prefix := range []string{"/api/jobs/", "/api/round-events/"} {

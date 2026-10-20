@@ -62,6 +62,13 @@ func TestRelayIntegrationPreservesLANAndDownloads(t *testing.T) {
 	if e = remoteCall(context.Background(), c, "GET", "/api/time", nil, &result); e != nil || result["now"] == nil {
 		t.Fatal(e, result)
 	}
+	a.mu.Lock()
+	a.gotvReconnect = CS2Launch{Phase: "sent", Message: "GOTV 重连命令已发送，等待新的比赛 GSI"}
+	a.mu.Unlock()
+	w := request(t, d, "GET", "/api/gotv-status", nil, "", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"phase":"sent"`) {
+		t.Fatalf("GOTV reconnect status through relay: %d %s", w.Code, w.Body.String())
+	}
 	data := bytes.Repeat([]byte("media-data"), 200000)
 	hash := sha256.Sum256(data)
 	path := filepath.Join(a.dir, "media", "testclip.mp4")

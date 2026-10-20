@@ -103,6 +103,14 @@ func TestGroupIsolationManualAutoAndNoStealing(t *testing.T) {
 	if code != 200 {
 		t.Fatal(code)
 	}
+	code, b = callPeer(t, h, d, "GET", "/v1/forward/api/gotv-status", nil)
+	if code != 200 || !bytes.Contains(b, []byte(`"ok":true`)) {
+		t.Fatalf("GOTV reconnect status not forwarded: %d %s", code, b)
+	}
+	code, _ = callPeer(t, h, d, "POST", "/v1/forward/api/gotv-status", nil)
+	if code != 403 {
+		t.Fatal("GOTV status mutation allowed", code)
+	}
 	code, _ = callPeer(t, h, d, "POST", "/v1/forward/api/config", map[string]string{})
 	if code != 403 {
 		t.Fatal("unsafe API allowed", code)
