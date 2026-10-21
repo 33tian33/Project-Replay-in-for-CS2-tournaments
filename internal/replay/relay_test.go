@@ -71,11 +71,14 @@ func TestRelayIntegrationPreservesLANAndDownloads(t *testing.T) {
 	}
 	data := bytes.Repeat([]byte("media-data"), 200000)
 	hash := sha256.Sum256(data)
-	path := filepath.Join(a.dir, "media", "testclip.mp4")
+	// Use the same composite ID as worker.go; short fixture IDs hid a relay
+	// validation bug that rejected every normal 65-character recording ID.
+	artifactID := strings.Repeat("a", 32) + "-" + strings.Repeat("b", 32)
+	path := filepath.Join(a.dir, "media", artifactID+".mp4")
 	if e = os.WriteFile(path, data, 0600); e != nil {
 		t.Fatal(e)
 	}
-	art := Artifact{ID: "testclip", Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:]), Path: path}
+	art := Artifact{ID: artifactID, Size: int64(len(data)), SHA256: hex.EncodeToString(hash[:]), Path: path}
 	a.mu.Lock()
 	a.s.Artifacts = append(a.s.Artifacts, art)
 	a.mu.Unlock()
