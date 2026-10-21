@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reproducible, CGO-free release artifacts from Linux, Windows, or macOS."""
 import hashlib
+import argparse
 import os
 from pathlib import Path
 import shutil
@@ -11,8 +12,13 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist'
 GO = os.environ.get('GO', 'go')
-VERSION = '0.2.11'
+VERSION = '0.2.12'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--linux-agent-only', action='store_true', help='Build Linux recorder packages only; leave director and relay unchanged')
+args = parser.parse_args()
 TARGETS = [('windows', 'amd64'), ('linux', 'arm64'), ('linux', 'amd64')]
+if args.linux_agent_only:
+    TARGETS = [('linux', 'arm64'), ('linux', 'amd64')]
 DIST.mkdir(exist_ok=True)
 artifacts = []
 for system, arch in TARGETS:
@@ -52,7 +58,7 @@ for system, arch in TARGETS:
     artifacts.append(archive)
     if system == 'windows': artifacts.append(DIST / 'ProjectReplay-windows-x64-portable.exe')
     print(f'Built {archive.name}', flush=True)
-    if system == 'linux':
+    if system == 'linux' and not args.linux_agent_only:
         relay_folder = DIST / f'ProjectReplay-Relay-{VERSION}-{system}-{arch}'
         relay_folder.mkdir(exist_ok=True)
         subprocess.run([GO, 'build', '-buildvcs=false', '-trimpath', '-ldflags=-s -w', '-o', str(relay_folder / 'replay-relay'), './cmd/replay-relay'], cwd=ROOT, env=env, check=True)

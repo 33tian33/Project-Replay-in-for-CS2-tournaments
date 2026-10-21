@@ -234,3 +234,101 @@ func TestWrongTargetInvalidatesAutomaticSlot(t *testing.T) {
 		t.Fatal("manual override modified")
 	}
 }
+
+func TestMappingNormalYieldHasNoCooldown(t *testing.T) {
+	if mappingRetryDelay(nil) != 0 || mappingRetryDelay(errMappingYield) != 0 {
+		t.Fatal("normal continuation must not wait")
+	}
+	if mappingRetryDelay(errMappingIncomplete) > 1000 || mappingRetryDelay(fmt.Errorf("console unavailable")) != 5000 {
+		t.Fatal("incomplete scan and transport failure need different backoff")
+	}
+}
+
+func TestMappingCandidateSurvivesSliceAndIsReverified(t *testing.T) {
+	d := &slotDiscovery{Next: 14, Verified: map[string]int{"A": 1}}
+	current := "A"
+	calls := 0
+	probe := func(slot int) (string, error) {
+		calls++
+		if calls == 3 {
+			return "", errMappingYield
+		}
+		next := map[int]string{1: "A", 14: "B"}[slot]
+		if next == "" || next == current {
+			return "", nil
+		}
+		current = next
+		return next, nil
+	}
+	if err := d.discover([]string{"A", "B"}, probe, func() {}); err != errMappingYield {
+		t.Fatal(err)
+	}
+	if d.Candidates["B"] != 14 || d.Verified["B"] != 0 || d.Next != 15 {
+		t.Fatal(d)
+	}
+	// Resume from the saved candidate, without traversing slots 15..128 first.
+	calls = 100
+	if err := d.discover([]string{"A", "B"}, probe, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if d.Verified["B"] != 14 || calls > 106 {
+		t.Fatal(d, calls)
+	}
+}
+
+func TestMappingInterruptedProbeDoesNotSkipSlot(t *testing.T) {
+	d := &slotDiscovery{Next: 42}
+	err := d.discover([]string{"A", "B"}, func(int) (string, error) { return "", errMappingYield }, func() {})
+	if err != errMappingYield || d.Next != 42 {
+		t.Fatal(d, err)
+	}
+}
+
+func TestMappingHintCannotBecomeCaptureMappingWithoutChanges(t *testing.T) {
+	d := &slotDiscovery{Next: 1, Candidates: map[string]int{"A": 1, "B": 14}}
+	if err := d.discover([]string{"A", "B"}, func(int) (string, error) { return "", nil }, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Verified) != 0 {
+		t.Fatal("no-op hints accepted", d)
+	}
+}
+
+func TestMappingRosterRefreshPreservesOnlyHints(t *testing.T) {
+	a := testService(t, "agent")
+	const aID = "76561198000000001"
+	const bID = "76561198000000002"
+	a.previous["b"] = map[string]any{"allplayers": map[string]any{aID: map[string]any{}}}
+	a.refreshPlayerMappingLocked(false)
+	a.playerMapping.Slots[aID] = 14
+	obj(a.previous["b"], "allplayers")[bID] = map[string]any{}
+	a.refreshPlayerMappingLocked(false)
+	if a.playerMapping.candidates[aID] != 14 || len(a.captureConfigLocked().Mappings) != 0 {
+		t.Fatal(a.playerMapping)
+	}
+	a.s.Config.Epoch++
+	a.refreshPlayerMappingLocked(false)
+	if len(a.playerMapping.candidates) != 0 {
+		t.Fatal("hint crossed sessions")
+	}
+}
+
+func TestMappingNormalRoundRetainsVerifiedIdentity(t *testing.T) {
+	a := testService(t, "agent")
+	const player = "76561198000000001"
+	p := clockGSI(1, 0, "live", 90)
+	p["allplayers"] = map[string]any{player: map[string]any{}}
+	if err := a.ingestGSI("b", p); err != nil {
+		t.Fatal(err)
+	}
+	a.playerMapping.Slots[player] = 14
+	old := a.playerMapping
+	p = clockGSI(2, 0, "freezetime", 15)
+	p["allplayers"] = map[string]any{player: map[string]any{}}
+	if err := a.ingestGSI("b", p); err != nil {
+		t.Fatal(err)
+	}
+	if a.playerMapping != old || a.captureConfigLocked().Mappings[player] != 14 {
+		t.Fatal("normal round cleared mapping")
+	}
+}

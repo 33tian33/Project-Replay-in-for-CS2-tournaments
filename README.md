@@ -1,4 +1,12 @@
-# Project Replay 0.2.7
+# Project Replay 0.2.12
+
+## 0.2.12 Linux 录制端槽位确认提速
+
+- 正常 6 秒探测时间片结束后，空闲时立即续扫，不再固定等待 30 秒；连接或 GSI 异常退避 5 秒，完整扫描仍有缺失时短暂退避 1 秒。
+- 保存未完成复核的候选与扫描位置，优先继续确认；普通换回合复用已确认的 SteamID64 → 命令槽位映射。同一连接的名单变化或断流恢复只保留候选线索，复核通过前不能用于录制。
+- 保留两帧 GSI、往返切换复核和录制优先机制。候选不是 HUD 的选手编号，也不直接把 Pawn 实体索引作为命令槽位。
+- 本次只需升级 Linux 录制端，兼容现有 0.2.11 Windows 导播端与 Relay；接口和中继协议不变。保留 `replay-data`，替换程序后重启录制端。
+- Linux 包：`ProjectReplay-0.2.12-linux-arm64.tar.gz` / `ProjectReplay-0.2.12-linux-amd64.tar.gz`。仅构建录制端可执行 `python3 scripts/build.py --linux-agent-only`。
 
 ## 0.2.7 内置 Astra HUD 与完整 GSI
 

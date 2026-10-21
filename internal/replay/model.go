@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const Version = "0.2.11"
+const Version = "0.2.12"
 
 var processClock = time.Now()
 
