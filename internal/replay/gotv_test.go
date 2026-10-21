@@ -60,7 +60,7 @@ func TestDirectorForwardsPlatformInstructionAndClearsOldPassword(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	waitGOTVCommand(t, commands, `spec_show_xray 1; password "test-secret"; connect game.example:27020`)
+	waitGOTVCommand(t, commands, `password "test-secret"; connect game.example:27020; `+teamHUDCommand)
 	for _, s := range []*Service{a, b} {
 		if s.s.Config.GOTV != "game.example:27020" || s.s.Config.GOTVPassword != "test-secret" {
 			t.Fatal("parsed settings not retained")
@@ -73,7 +73,7 @@ func TestDirectorForwardsPlatformInstructionAndClearsOldPassword(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	waitGOTVCommand(t, commands, `spec_show_xray 1; password ""; connect other.example:27020`)
+	waitGOTVCommand(t, commands, `password ""; connect other.example:27020; `+teamHUDCommand)
 	if b.s.Config.GOTVPassword != "" {
 		t.Fatal("old server password leaked into new address")
 	}
@@ -170,7 +170,7 @@ func TestForcedGOTVReconnectCancelsAndWaitsForCamera(t *testing.T) {
 	}
 	b.captureMu.Unlock()
 	locked = false
-	waitGOTVCommand(t, commands, `disconnect; spec_show_xray 1; password "secret"; connect game.example:27020`)
+	waitGOTVCommand(t, commands, `password "secret"; connect game.example:27020; `+teamHUDCommand)
 	for until := time.Now().Add(time.Second); time.Now().Before(until); {
 		b.mu.Lock()
 		phase := b.gotvReconnect.Phase
@@ -198,7 +198,7 @@ func TestDirectorCanReconnectWhileBusy(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	waitGOTVCommand(t, commands, `disconnect; spec_show_xray 1; password "abc def"; connect game.example:27020`)
+	waitGOTVCommand(t, commands, `password "abc def"; connect game.example:27020; `+teamHUDCommand)
 	if strings.Contains(w.Body.String(), "abc def") {
 		t.Fatal("response exposed password")
 	}

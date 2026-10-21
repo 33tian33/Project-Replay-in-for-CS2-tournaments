@@ -85,8 +85,8 @@ func (a *Service) reconnectGOTV(c Config) error {
 		return err
 	}
 	defer release()
-	// Always disconnect even for the same address; always set/clear password first.
-	command := "disconnect; spec_show_xray 1; password \"" + c.GOTVPassword + "\"; connect " + c.GOTV
+	// Connect directly, then hide native UI and enable X-ray.
+	command := gotvConnectCommand(c)
 	if err := netCommand(c.NetCon, command); err != nil {
 		return err
 	}

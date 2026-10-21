@@ -174,7 +174,7 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 			defer release()
 			// Set the password BEFORE connecting, regardless of the platform's order.
 			// Explicitly clear a previous server password when this address has none.
-			command := "spec_show_xray 1; password \"" + c.GOTVPassword + "\"; connect " + c.GOTV
+			command := gotvConnectCommand(c)
 			if err = netCommand(c.NetCon, command); err != nil {
 				fail(w, err)
 				return
@@ -194,4 +194,10 @@ func (a *Service) gotvRoutes(api *http.ServeMux) {
 		}
 		respond(w, 200, map[string]string{"message": "B 路已接收连接请求，请查看 B 路连接状态或游戏画面", "gotv": c.GOTV})
 	})
+}
+
+// Connecting directly lets CS2 replace the current session. A preceding
+// disconnect can asynchronously discard the queued Remote Connect request.
+func gotvConnectCommand(c Config) string {
+	return "password \"" + c.GOTVPassword + "\"; connect " + c.GOTV + "; " + teamHUDCommand
 }
