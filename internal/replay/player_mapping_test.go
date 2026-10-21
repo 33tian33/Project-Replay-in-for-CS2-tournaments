@@ -245,7 +245,7 @@ func TestMappingNormalYieldHasNoCooldown(t *testing.T) {
 }
 
 func TestMappingCandidateSurvivesSliceAndIsReverified(t *testing.T) {
-	d := &slotDiscovery{Next: 14, Verified: map[string]int{"A": 1}}
+	d := &slotDiscovery{Next: 14, Verified: map[string]int{"A": 1}, Seen: map[int]bool{}}
 	current := "A"
 	calls := 0
 	probe := func(slot int) (string, error) {
@@ -331,4 +331,174 @@ func TestMappingNormalRoundRetainsVerifiedIdentity(t *testing.T) {
 	if a.playerMapping != old || a.captureConfigLocked().Mappings[player] != 14 {
 		t.Fatal("normal round cleared mapping")
 	}
+}
+
+func TestMappingPrioritizesKnownNeighborsBeforeEmptyTail(t *testing.T) {
+	d := &slotDiscovery{Next: 80, Verified: map[string]int{"A": 14}}
+	current := "A"
+	probes := []int{}
+	err := d.discover([]string{"A", "B"}, func(slot int) (string, error) {
+		probes = append(probes, slot)
+		next := map[int]string{14: "A", 15: "B"}[slot]
+		if next == "" || next == current {
+			return "", nil
+		}
+		current = next
+		return next, nil
+	}, func() {})
+	if err != nil || d.Verified["B"] != 15 {
+		t.Fatal(d, err)
+	}
+	for _, slot := range probes {
+		if slot >= 80 {
+			t.Fatal("scanned empty tail before neighbor", probes)
+		}
+	}
+	if len(probes) > 8 {
+		t.Fatal("too many probes", probes)
+	}
+}
+
+func TestMappingPriorityQueueSurvivesInterruptedProbe(t *testing.T) {
+	d := &slotDiscovery{Next: 80, Verified: map[string]int{"A": 14}}
+	first := 0
+	if err := d.discover([]string{"A", "B"}, func(slot int) (string, error) { first = slot; return "", errMappingYield }, func() {}); err != errMappingYield {
+		t.Fatal(err)
+	}
+	second := 0
+	d.discover([]string{"A", "B"}, func(slot int) (string, error) { second = slot; return "", errMappingYield }, func() {})
+	if first != 13 || second != 13 || d.Next != 80 {
+		t.Fatal(first, second, d)
+	}
+}
+
+func TestMappingFullSweepProgressAcrossSlices(t *testing.T) {
+	d := &slotDiscovery{Next: 1}
+	calls := 0
+	completed := false
+	for slice := 0; slice < 30; slice++ {
+		budget := 10
+		err := d.discover([]string{"A", "B"}, func(int) (string, error) {
+			if budget == 0 {
+				return "", errMappingYield
+			}
+			budget--
+			calls++
+			return "", nil
+		}, func() {})
+		if err == nil {
+			completed = true
+			break
+		}
+		if err != errMappingYield {
+			t.Fatal(err)
+		}
+	}
+	if !completed || calls != 256 {
+		t.Fatal("scan never finishes across slices", calls, d)
+	}
+}
+
+func TestMappingOutageReverifiesHintsWithoutFullScan(t *testing.T) {
+	a := testService(t, "agent")
+	const one = "76561198000000001"
+	const two = "76561198000000002"
+	a.previous["b"] = map[string]any{"allplayers": map[string]any{one: map[string]any{}, two: map[string]any{}}}
+	a.refreshPlayerMappingLocked(false)
+	a.playerMapping.Slots = map[string]int{one: 90, two: 110}
+	a.refreshPlayerMappingLocked(true)
+	if len(a.captureConfigLocked().Mappings) != 0 {
+		t.Fatal("outage hints trusted without verification")
+	}
+	d := &slotDiscovery{Candidates: jsonCopy(a.playerMapping.candidates)}
+	current := one
+	calls := 0
+	if err := d.discover([]string{one, two}, func(slot int) (string, error) {
+		calls++
+		if slot != 90 && slot != 110 {
+			t.Fatalf("blind scanned %d instead of rechecking hints", slot)
+		}
+		next := map[int]string{90: one, 110: two}[slot]
+		if current == next {
+			return "", nil
+		}
+		current = next
+		return next, nil
+	}, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Verified) != 2 || calls > 5 {
+		t.Fatal(d, calls)
+	}
+	// Temporary roster omissions keep history only, never capture eligibility.
+	a.playerMapping.Slots = d.Verified
+	delete(obj(a.previous["b"], "allplayers"), two)
+	a.refreshPlayerMappingLocked(false)
+	obj(a.previous["b"], "allplayers")[two] = map[string]any{}
+	a.refreshPlayerMappingLocked(false)
+	if a.playerMapping.candidates[two] != 110 || len(a.captureConfigLocked().Mappings) != 0 {
+		t.Fatal(a.playerMapping)
+	}
+}
+
+func TestMappingDoesNotBlockPlanningKnownPlayer(t *testing.T) {
+	a := testService(t, "agent")
+	a.s.Config.Mode = "live"
+	a.s.Config.Setup = .3
+	a.s.Config.Guard = .2
+	const known = "76561198000000001"
+	const unknown = "76561198000000002"
+	a.previous["b"] = map[string]any{"allplayers": map[string]any{known: map[string]any{}, unknown: map[string]any{}}}
+	a.refreshPlayerMappingLocked(false)
+	a.playerMapping.Slots[known] = 14
+	now := nowMS()
+	a.mappingBusy = true
+	a.playerMapping.deadline = now + 6000
+	e := clockEvent("known", 5, "live", 78.2)
+	e.Player = known
+	missing := clockEvent("missing", 5, "live", 75)
+	missing.Player = unknown
+	a.s.Events = []Event{e, missing}
+	a.roundClocks = map[string]clockSample{"b": {RoundClock{5, "live", 80}, now, now}}
+	a.tick()
+	if a.s.Events[0].Status != "SCHEDULED" || a.s.Events[1].Status != "IDENTITY_UNKNOWN" {
+		t.Fatal(a.s.Events)
+	}
+	if a.playerMapping.deadline > nowMS() || len(a.s.Jobs) != 0 {
+		t.Fatal("did not yield before committing", a.playerMapping, a.s.Jobs)
+	}
+	a.mappingBusy = false
+	a.tick()
+	a.cancel() // Prevent the synthetic committed job from reaching real adapters.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.s.Jobs) != 1 || a.s.Jobs[0].Player != known || a.s.Jobs[0].Slot != 14 {
+		t.Fatal(a.s.Jobs)
+	}
+}
+
+func TestMappingYieldsOnlyToValidatedRemoteJob(t *testing.T) {
+	a := testService(t, "agent")
+	a.s.Config.Mode = "live"
+	a.s.Config.CalibratedUntil = nowMS() + 60000
+	a.s.Config.Paused = false
+	const known = "76561198000000001"
+	a.previous["b"] = map[string]any{"allplayers": map[string]any{known: map[string]any{}}}
+	a.refreshPlayerMappingLocked(false)
+	a.playerMapping.Slots[known] = 14
+	a.mappingBusy = true
+	deadline := nowMS() + 6000
+	a.playerMapping.deadline = deadline
+	start := nowMS() + 10000
+	e := ev("remoteevent", known, start+1200)
+	j := Job{ID: "remotejob", Epoch: e.Epoch, Match: e.Match, Map: e.Map, Player: known, Slot: 13, Start: start, End: start + 2400, Events: []Event{e}}
+	if _, err := a.acceptJob(j); err == nil || a.playerMapping.deadline != deadline {
+		t.Fatal("invalid job preempted scan", err)
+	}
+	j.Slot = 14
+	got, err := a.acceptJob(j)
+	if err != nil || got.Status != "COMMITTED" || a.playerMapping.deadline > nowMS() {
+		t.Fatal(got, err)
+	}
+	a.cancel()
 }

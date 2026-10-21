@@ -429,10 +429,6 @@ func (a *Service) tick() {
 		return
 	}
 	t := nowMS()
-	if a.startPlayerMappingLocked(t) {
-		a.mu.Unlock()
-		return
-	}
 	c := a.captureConfigLocked()
 	a.forwardRoundEventsLocked(c)
 	if a.role == "agent" {
@@ -453,6 +449,7 @@ func (a *Service) tick() {
 		return selected[i].Time < selected[j].Time
 	})
 	if len(selected) == 0 {
+		a.startPlayerMappingLocked(t)
 		a.mu.Unlock()
 		return
 	}
@@ -464,6 +461,16 @@ func (a *Service) tick() {
 		lead = 350
 	} // Track B countdown until just before capture.
 	if start-recordingSetupMS(c) > t+lead {
+		a.startPlayerMappingLocked(t)
+		a.mu.Unlock()
+		return
+	}
+	// Discovery never blocks planning. A partially mapped roster can record
+	// known targets as soon as the current probe gives the camera back.
+	if a.mappingBusy {
+		if a.playerMapping != nil {
+			a.playerMapping.deadline = t
+		}
 		a.mu.Unlock()
 		return
 	}

@@ -59,7 +59,7 @@ func TestMappingResumeKeepsVerifiedSlots(t *testing.T) {
 		}
 		return "", nil
 	}, func(int) {}, 42, map[string]int{"A": 1})
-	if err != nil || first != 42 || slots["A"] != 1 || slots["B"] != 42 {
+	if err != nil || first != 2 || slots["A"] != 1 || slots["B"] != 42 {
 		t.Fatal(slots, err, first)
 	}
 }

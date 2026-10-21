@@ -109,6 +109,7 @@ func (m *playerCamera) Check() error {
 		if a.playerMapping != nil && m.job.Slot > 0 && a.s.Config.Mappings[m.job.Player] == 0 && a.playerMapping.Slots[m.job.Player] == m.job.Slot {
 			delete(a.playerMapping.Slots, m.job.Player)
 			delete(a.playerMapping.candidates, m.job.Player)
+			delete(a.playerMapping.history, m.job.Player)
 			a.playerMapping.Phase = "waiting"
 			a.playerMapping.Message = "目标核验不一致，等待重新确认自动槽位"
 			a.playerMapping.retryAt = nowMS() + 5000

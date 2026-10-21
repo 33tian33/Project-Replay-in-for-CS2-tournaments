@@ -344,7 +344,7 @@ func (a *Service) acceptJob(j Job) (Job, error) {
 		}
 	}
 	c := a.captureConfigLocked()
-	if a.gotvReconnect.Phase == "starting" || a.mappingBusy || a.localDemo.Phase == "armed" {
+	if a.gotvReconnect.Phase == "starting" || a.localDemo.Phase == "armed" {
 		return j, errors.New("录制资源已被占用")
 	}
 	if a.storageErr != "" {
@@ -405,6 +405,11 @@ func (a *Service) acceptJob(j Job) (Job, error) {
 		}
 	}
 	j.Status = "COMMITTED"
+	// A validated job for already mapped targets preempts background discovery.
+	// capture() still acquires captureMu before touching the camera or OBS.
+	if a.mappingBusy && a.playerMapping != nil {
+		a.playerMapping.deadline = nowMS()
+	}
 	j.Error = ""
 	j.Artifacts = []Artifact{}
 	a.s.Jobs = append(a.s.Jobs, j)

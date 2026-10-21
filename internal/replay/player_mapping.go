@@ -19,7 +19,12 @@ type playerMapping struct {
 	key        string
 	session    string
 	candidates map[string]int
+	history    map[string]int
 	hintNext   int
+	priority   []int
+	seen       map[int]bool
+	scanSteps  int
+	anchorNext map[string]int
 	retryAt    int64
 	deadline   int64
 }
@@ -57,11 +62,21 @@ func (a *Service) refreshPlayerMappingLocked(reset bool) {
 	key, ids := a.mappingKeyLocked()
 	if reset || a.playerMapping == nil || a.playerMapping.key != key {
 		old := a.playerMapping
-		run := &playerMapping{key: key, session: a.mappingSessionLocked(), candidates: map[string]int{}, Total: len(ids), Slots: map[string]int{}, Phase: "waiting", Message: "等待 B 路空闲后自动确认玩家槽位"}
+		run := &playerMapping{key: key, session: a.mappingSessionLocked(), candidates: map[string]int{}, history: map[string]int{}, Total: len(ids), Slots: map[string]int{}, Phase: "waiting", Message: "等待 B 路空闲后自动确认玩家槽位"}
 		// A roster change/outage invalidates evidence, but old command numbers
 		// remain useful hints within this connection. Never record from hints.
 		if old != nil && old.session == run.session {
+			run.Slot = old.Slot
+			for id, slot := range old.history {
+				run.history[id] = slot
+			}
+			for id, slot := range old.Slots {
+				run.history[id] = slot
+			}
 			for _, id := range ids {
+				if slot := run.history[id]; slot > 0 {
+					run.candidates[id] = slot
+				}
 				if slot := old.candidates[id]; slot > 0 {
 					run.candidates[id] = slot
 				}
@@ -143,7 +158,7 @@ func (a *Service) startPlayerMappingLocked(now int64) bool {
 	a.mappingBusy = true
 	run.deadline = now + 6000
 	run.Phase = "scanning"
-	run.Message = "正在自动确认 B 路命令槽位，完成后恢复录制"
+	run.Message = fmt.Sprintf("正在确认剩余槽位，已确认 %d/%d 名玩家可参与录制", len(run.Slots), run.Total)
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -193,16 +208,20 @@ func (a *Service) mappingObservation(run *playerMapping) (string, int64, error) 
 func (a *Service) mappingWouldDelayCaptureLocked(now int64) bool {
 	c := a.captureConfigLocked()
 	sample := a.roundClocks["b"]
-	if sample.At == 0 || now-sample.At > 1500 {
-		return false
-	}
+	clockFresh := sample.At > 0 && now-sample.At <= 1500
 	for _, e := range a.s.Events {
-		if e.JobID != "" || terminal(e.Status) || e.Epoch != c.Epoch || e.Map != c.Map || c.Mappings[e.Player] == 0 || !validRoundClock(e.Clock) {
+		if e.JobID != "" || terminal(e.Status) || e.Epoch != c.Epoch || e.Map != c.Map || e.Match != c.Match || e.Utility == nil && c.Mappings[e.Player] == 0 {
 			continue
 		}
-		at, ok := clockPrediction(sample, e)
-		if !ok && sample.Clock.Round == e.Round && sample.Clock.Phase == e.Clock.Phase {
-			at, ok = sample.At+int64((sample.Clock.Remaining-e.Clock.Remaining)*1000), true
+		at, ok := e.Time, e.Time > 0
+		if e.RoundTiming {
+			if !clockFresh || !validRoundClock(e.Clock) {
+				continue
+			}
+			at, ok = clockPrediction(sample, e)
+			if !ok && sample.Clock.Round == e.Round && sample.Clock.Phase == e.Clock.Phase {
+				at, ok = sample.At+int64((sample.Clock.Remaining-e.Clock.Remaining)*1000), true
+			}
 		}
 		if ok && at+replayAfterMS+int64(c.Guard*1000) > now && at-now <= recordingSetupMS(c)+replayBeforeMS+int64(c.Guard*1000)+1500 {
 			return true
@@ -265,7 +284,7 @@ func (a *Service) discoverPlayerSlots(run *playerMapping, c Config, ids []string
 		return "", nil
 	}
 	a.mu.Lock()
-	discovery := &slotDiscovery{Next: run.Slot, HintNext: run.hintNext, Candidates: jsonCopy(run.candidates), Verified: jsonCopy(run.Slots)}
+	discovery := &slotDiscovery{Next: run.Slot, HintNext: run.hintNext, Candidates: jsonCopy(run.candidates), Verified: jsonCopy(run.Slots), Priority: append([]int(nil), run.priority...), Seen: jsonCopy(run.seen), ScanSteps: run.scanSteps, AnchorNext: jsonCopy(run.anchorNext)}
 	a.mu.Unlock()
 	err = discovery.discover(ids, probe, func() {
 		a.mu.Lock()
@@ -273,8 +292,19 @@ func (a *Service) discoverPlayerSlots(run *playerMapping, c Config, ids []string
 		if a.playerMapping == run {
 			run.Slot = discovery.Next
 			run.hintNext = discovery.HintNext
+			run.priority = append([]int(nil), discovery.Priority...)
+			run.seen = jsonCopy(discovery.Seen)
+			run.scanSteps = discovery.ScanSteps
+			run.anchorNext = jsonCopy(discovery.AnchorNext)
 			run.candidates = jsonCopy(discovery.Candidates)
 			run.Slots = jsonCopy(discovery.Verified)
+			if run.history == nil {
+				run.history = map[string]int{}
+			}
+			for id, slot := range run.Slots {
+				run.history[id] = slot
+			}
+			run.Message = fmt.Sprintf("正在确认剩余槽位，已确认 %d/%d 名玩家可参与录制", len(run.Slots), run.Total)
 		}
 	})
 	a.mu.Lock()
@@ -307,6 +337,31 @@ type slotDiscovery struct {
 	HintNext   int
 	Candidates map[string]int
 	Verified   map[string]int
+	Priority   []int
+	Seen       map[int]bool
+	ScanSteps  int
+	AnchorNext map[string]int
+}
+
+// These are command-number hints, not HUD observer slots. Explore known numbers
+// and their neighbors first, with the full 1..128 scan retained as a fallback.
+func (d *slotDiscovery) prioritize(slot int) {
+	for _, offset := range []int{0, -1, 1, -2, 2, -3, 3, -4, 4} {
+		n := slot + offset
+		if n < 1 || n > 128 || d.Seen[n] {
+			continue
+		}
+		queued := false
+		for _, p := range d.Priority {
+			if p == n {
+				queued = true
+				break
+			}
+		}
+		if !queued {
+			d.Priority = append(d.Priority, n)
+		}
+	}
 }
 
 func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), publish func()) error {
@@ -335,13 +390,26 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 	if d.Next < 1 || d.Next > 128 {
 		d.Next = 1
 	}
+	if d.AnchorNext == nil {
+		d.AnchorNext = map[string]int{}
+	}
+	if d.Seen == nil {
+		d.Seen = map[int]bool{}
+		for _, player := range ids {
+			if slot := d.Candidates[player]; slot > 0 {
+				d.prioritize(slot)
+			}
+		}
+	}
 	defer publish()
 
 	verify := func(player string) error {
 		slot := d.Candidates[player]
-		for _, other := range ids {
+		for d.AnchorNext[player] < len(ids) {
+			other := ids[d.AnchorNext[player]]
 			otherSlot := d.Candidates[other]
 			if other == player || otherSlot == 0 || otherSlot == slot {
+				d.AnchorNext[player]++
 				continue
 			}
 			// The first selection may be a no-op if a slice ended on this anchor.
@@ -354,6 +422,7 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 				return err
 			}
 			if returned != player {
+				d.AnchorNext[player]++
 				continue
 			}
 			switched, err := probe(otherSlot)
@@ -361,6 +430,7 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 				return err
 			}
 			if switched != other {
+				d.AnchorNext[player]++
 				continue
 			}
 			again, err := probe(slot)
@@ -374,11 +444,14 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 				}
 				if confirmed == other {
 					d.Verified[player], d.Verified[other] = slot, otherSlot
+					delete(d.AnchorNext, player)
 					publish()
 					return nil
 				}
 			}
+			d.AnchorNext[player]++
 		}
+		delete(d.AnchorNext, player)
 		return nil
 	}
 	// Resume unfinished verification before scanning more empty slots. Hints from
@@ -396,8 +469,12 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 		return nil
 	}
 	// Two passes cover a player already observed at the start of the first pass.
-	for count := 0; count < 256; count++ {
+	for d.ScanSteps < 256 {
 		slot := d.Next
+		priority := len(d.Priority) > 0
+		if priority {
+			slot = d.Priority[0]
+		}
 		known := false
 		for _, verifiedSlot := range d.Verified {
 			if slot == verifiedSlot {
@@ -405,22 +482,35 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 				break
 			}
 		}
-		if known {
-			d.Next = slot%128 + 1
-			continue
+		player := ""
+		if !known && !d.Seen[slot] {
+			var err error
+			player, err = probe(slot)
+			if err != nil {
+				return err
+			} // Keep the interrupted slot queued.
+			d.Seen[slot] = true
 		}
-		player, err := probe(slot)
-		if err != nil {
-			return err
-		} // Retry this slot if its observation was interrupted.
-		d.Next = slot%128 + 1
+		if priority {
+			d.Priority = d.Priority[1:]
+		} else {
+			d.Next = slot%128 + 1
+			d.ScanSteps++
+			if d.ScanSteps%128 == 0 {
+				d.Seen = map[int]bool{}
+			}
+		}
 		if !roster[player] {
 			publish()
 			continue
 		}
 		// New observations may replace a stale hint, but never verified evidence.
 		if d.Verified[player] == 0 {
+			if d.Candidates[player] != slot {
+				delete(d.AnchorNext, player)
+			}
 			d.Candidates[player] = slot
+			d.prioritize(slot)
 		}
 		publish()
 		if d.Verified[player] == 0 {
@@ -439,5 +529,7 @@ func (d *slotDiscovery) discover(ids []string, probe func(int) (string, error), 
 		}
 	}
 	d.HintNext = 0
+	d.ScanSteps = 0
+	d.Seen = nil
 	return nil
 }
