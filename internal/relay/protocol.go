@@ -14,6 +14,10 @@ const MaxChunk = 1 << 20
 
 var GroupPattern = regexp.MustCompile(`^[0-9]{4}$`)
 var IDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// Recorded clips combine job and event IDs (32 + 1 + 32 characters).
+// Match the recording client's validID limit without relaxing device IDs.
+var ArtifactIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 var HashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func ID() string {

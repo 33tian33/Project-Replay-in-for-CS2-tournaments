@@ -27,7 +27,7 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	artifact := r.PathValue("id")
 	hash := r.Header.Get("X-Replay-SHA256")
 	size, e := strconv.ParseInt(r.Header.Get("X-Replay-Size"), 10, 64)
-	if !IDPattern.MatchString(artifact) || !HashPattern.MatchString(hash) || e != nil || size <= 0 || size > 1<<30 {
+	if !ArtifactIDPattern.MatchString(artifact) || !HashPattern.MatchString(hash) || e != nil || size <= 0 || size > 1<<30 {
 		problem(w, 400, "无效素材信息")
 		return
 	}

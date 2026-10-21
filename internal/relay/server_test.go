@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,7 +175,8 @@ func TestRelayMediaResumableHashRangeAndAck(t *testing.T) {
 	eventually(t, func() bool { return d.snapshot().Pair != "" })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", h.URL+"/v1/media/clip1", nil)
+	artifactID := strings.Repeat("a", 32) + "-" + strings.Repeat("b", 32)
+	req, _ := http.NewRequestWithContext(ctx, "GET", h.URL+"/v1/media/"+artifactID, nil)
 	Headers(req, cs[0].ID, "0099", d.snapshot().Pair)
 	req.Header.Set("X-Replay-SHA256", digest)
 	req.Header.Set("X-Replay-Size", jsonNumber(len(payload)))
@@ -192,6 +194,9 @@ func TestRelayMediaResumableHashRangeAndAck(t *testing.T) {
 	var m Message
 	select {
 	case m = <-uploads:
+		if m.Artifact != artifactID {
+			t.Fatalf("upload requested wrong artifact: %q", m.Artifact)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("missing upload request")
 	}
