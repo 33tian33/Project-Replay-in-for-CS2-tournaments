@@ -199,7 +199,7 @@ python3 scripts/build.py
 
 ### 自动隐藏游戏 UI 与最低画质
 
-Linux 安装战队 HUD 到 OBS 时，真实模式会使用无需 `sv_cheats` 的隐藏方案，发送 `gameui_hide; hideconsole; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；启用 OBS HUD 后禁止再显示游戏原生 HUD，避免重复叠加。
+Linux 安装战队 HUD 到 OBS 时，真实模式会使用无需 `sv_cheats` 的隐藏方案，发送 `gameui_hide; hideconsole; crosshair 1; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1`，并回读确认。游戏拒绝时会报告失败。成功后保存战队 HUD 模式，录制、切换镜头、Demo 播放及重新启动游戏时沿用；启用 OBS HUD 后禁止再显示游戏原生 HUD，避免重复叠加。
 
 通过 Replay 启动新的 CS2 进程前，自动备份并原子更新 Snap Steam 账户的 `cs2_video.txt`：关闭抗锯齿、环境光遮蔽和垂直同步，阴影、纹理、粒子、过滤采用最低设置，HDR / FSR 采用性能设置，输出保留 1920×1080。配置缺失、字段异常或发现多个账户时会报错并停止启动。已经运行的 CS2 不会被强制重启，画质在下次关闭后重新启动时应用。
 
@@ -296,3 +296,5 @@ Windows A 路主界面可直接粘贴 `connect host:27020;password 密码`（也
 - 窗口保护内置纯 Go X11 客户端，无需安装 `wmctrl` 或 `xdotool`；使用现有无头会话的 Xauthority，不改变桌面访问权限。受窗口管理器管理的普通窗口通过 EWMH 处理，Steam 游戏内覆盖层不属于桌面窗口。
 - **云端 Relay 与 Linux Agent 必须同时升级并重启**；仅更新 Windows 导播端无法修复旧 Relay 的 403。Windows 导播端也提供对应 0.2.11 包。
 - 升级保留 `replay-data`、`relay-data` 和已有配置。连接命令已发送不等于 GOTV 已连接，仍需观察 GSI 状态并核对 B 路游戏画面。
+
+Linux B 路每次通过 Replay 连接/重连 GOTV 后，首次收到有效比赛 GSI 起计时 5 秒，再发送隐藏原生 UI 指令，保留准星和 X 光。重复 GSI 不会重复计时；旧连接、失效会话和程序退出会取消延迟发送。版本保持 0.2.12。

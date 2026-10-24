@@ -135,6 +135,7 @@ func (a *Service) ingestGSI(side string, payload map[string]any) (err error) {
 		a.refreshPlayerMappingLocked(resetMapping)
 		if a.gotvReconnect.Phase == "sent" && a.observed != "" && len(obj(payload, "allplayers")) > 0 {
 			a.gotvReconnect = CS2Launch{Phase: "receiving", Message: "已收到 B 路比赛 GSI；目标服务器地址仍需在游戏中核对"}
+			a.scheduleGOTVHUDLocked()
 		}
 		return nil
 	}
