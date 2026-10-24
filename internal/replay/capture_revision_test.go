@@ -167,6 +167,7 @@ func TestHUDDisablesOldZIPDuplicatesAndNestedOverlays(t *testing.T) {
 	}
 	var mu sync.Mutex
 	enabled := map[string]bool{}
+	var raised []int
 	c := testConfig()
 	c.OBSURL = revisionOBS(t, func(kind string, args map[string]any) map[string]any {
 		mu.Lock()
@@ -175,6 +176,11 @@ func TestHUDDisablesOldZIPDuplicatesAndNestedOverlays(t *testing.T) {
 		switch kind {
 		case "GetSceneItemList", "GetGroupSceneItemList":
 			return map[string]any{"sceneItems": rows[scene]}
+		case "SetSceneItemIndex":
+			if scene != "Main" || number(args, "sceneItemId") != 1 {
+				t.Error("reordered an unrelated scene item", args)
+			}
+			raised = append(raised, int(number(args, "sceneItemIndex")))
 		case "SetSceneItemEnabled":
 			enabled[fmt.Sprintf("%s:%d", scene, int(number(args, "sceneItemId")))], _ = args["sceneItemEnabled"].(bool)
 		}
@@ -186,12 +192,20 @@ func TestHUDDisablesOldZIPDuplicatesAndNestedOverlays(t *testing.T) {
 	}
 	defer o.close()
 	for i := 0; i < 2; i++ {
+		if i == 1 {
+			mu.Lock()
+			rows["Main"] = append(rows["Main"], row("CS2 Screen", 9))
+			mu.Unlock()
+		}
 		if err := enforceSingleHUD(o, "Main", "Project Replay ZIP HUD new", "External", 1); err != nil {
 			t.Fatal(err)
 		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	if len(raised) != 2 || raised[0] != 7 || raised[1] != 8 {
+		t.Fatal("HUD must be raised again above newly added CS2 capture", raised)
+	}
 	if !enabled["Main:1"] {
 		t.Fatal("selected HUD disabled", enabled)
 	}

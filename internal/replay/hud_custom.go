@@ -211,14 +211,6 @@ func installHUDSource(o *obs, h HUDSettings, host, previous string) (string, str
 	if _, err = o.call("SetSceneItemEnabled", map[string]any{"sceneName": sceneName, "sceneItemId": itemID, "sceneItemEnabled": true}); err != nil {
 		return "", "", err
 	}
-	items, err := o.call("GetSceneItemList", map[string]any{"sceneName": sceneName})
-	if err != nil {
-		return "", "", err
-	}
-	rows, _ := items["sceneItems"].([]any)
-	if _, err = o.call("SetSceneItemIndex", map[string]any{"sceneName": sceneName, "sceneItemId": itemID, "sceneItemIndex": max(0, len(rows)-1)}); err != nil {
-		return "", "", err
-	}
 	if h.Mode != "source" && h.Mode != "openhud" {
 		video, e := o.call("GetVideoSettings", nil)
 		if e != nil {
@@ -262,6 +254,13 @@ func enforceSingleHUD(o *obs, root, input, previous string, itemID float64) erro
 				enabled := input != "" && scene == root && name == input && number(m, "sceneItemId") == itemID
 				if _, err := o.call("SetSceneItemEnabled", map[string]any{"sceneName": scene, "sceneItemId": m["sceneItemId"], "sceneItemEnabled": enabled}); err != nil {
 					return err
+				}
+				if enabled {
+					// OBS indexes run bottom to top. Reassert the HUD's position
+					// before recording too, since capture sources may have moved.
+					if _, err := o.call("SetSceneItemIndex", map[string]any{"sceneName": scene, "sceneItemId": itemID, "sceneItemIndex": len(rows) - 1}); err != nil {
+						return err
+					}
 				}
 			}
 			isGroup, _ := m["isGroup"].(bool)
