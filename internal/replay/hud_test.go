@@ -2,6 +2,7 @@ package replay
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -42,7 +43,7 @@ func TestHUDCommands(t *testing.T) {
 	a.s.Config.NetCon = listener.Addr().String()
 	received := make(chan string, 2)
 	go func() {
-		for i := 0; i < 2; i++ {
+		for i := 0; i < 3; i++ {
 			conn, err := listener.Accept()
 			if err != nil {
 				return
@@ -58,8 +59,8 @@ func TestHUDCommands(t *testing.T) {
 					first = false
 					visible = strings.Contains(line, "cl_drawhud 1")
 				}
-				if line == "cl_drawhud; cl_draw_only_deathnotices" {
-					fmt.Fprintf(conn, "cl_drawhud = true\ncl_draw_only_deathnotices = %t\n", !visible)
+				if line == "cl_drawhud; crosshair; cl_draw_only_deathnotices" {
+					fmt.Fprintf(conn, "cl_drawhud = true\ncrosshair = true\ncl_draw_only_deathnotices = %t\n", !visible)
 				}
 				if strings.HasPrefix(line, "echo ") {
 					fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))
@@ -68,9 +69,28 @@ func TestHUDCommands(t *testing.T) {
 			conn.Close()
 		}
 	}()
-	for _, visible := range []bool{false, true} {
+	for i, visible := range []bool{false, true, false} {
+		if i == 2 {
+			a.s.HUDActiveSource = "Project Replay Astra HUD"
+			a.s.TeamHUD = true
+		}
 		if err := a.setHUD(visible); err != nil {
 			t.Fatal(err)
+		}
+		if i == 2 {
+			if !a.nativeHUDHidden || !a.s.TeamHUD || a.s.HUDActiveSource != "Project Replay Astra HUD" {
+				t.Fatal("native switch cleared OBS HUD state")
+			}
+			for _, path := range []string{"/hud-data", "/hud-api/state"} {
+				w := request(t, a, "GET", path, nil, "", "")
+				var state map[string]any
+				if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+					t.Fatal(err)
+				}
+				if w.Code != 200 || state["visible"] != true {
+					t.Fatalf("%s hid OBS overlay: %s", path, w.Body.String())
+				}
+			}
 		}
 		want := teamHUDCommand + "\n"
 		if visible {
@@ -106,8 +126,8 @@ func TestHUDRejectsUnappliedCommand(t *testing.T) {
 		scanner := bufio.NewScanner(conn)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if line == "cl_drawhud; cl_draw_only_deathnotices" {
-				fmt.Fprintln(conn, "cl_drawhud = false\ncl_draw_only_deathnotices = true")
+			if line == "cl_drawhud; crosshair; cl_draw_only_deathnotices" {
+				fmt.Fprintln(conn, "cl_drawhud = false\ncrosshair = true\ncl_draw_only_deathnotices = true")
 			}
 			if strings.HasPrefix(line, "echo ") {
 				fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))
@@ -120,8 +140,8 @@ func TestHUDRejectsUnappliedCommand(t *testing.T) {
 }
 
 func TestTeamHUDCommandReadback(t *testing.T) {
-	for _, applied := range []bool{true, false} {
-		t.Run(fmt.Sprint(applied), func(t *testing.T) {
+	for _, tc := range []struct{ overlaysHidden, crosshair bool }{{true, true}, {false, true}, {true, false}} {
+		t.Run(fmt.Sprint(tc), func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -142,7 +162,7 @@ func TestTeamHUDCommandReadback(t *testing.T) {
 						commands <- line
 					}
 					if strings.HasPrefix(line, "cl_drawhud;") {
-						fmt.Fprintf(conn, "Ignoring CSVCMsg_UserCommands_t with no command datacl_drawhud = true\ncrosshair = false\ncl_draw_only_deathnotices = %t\ncl_drawhud_force_deathnotices = -1\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", applied)
+						fmt.Fprintf(conn, "Ignoring CSVCMsg_UserCommands_t with no command datacl_drawhud = true\ncrosshair = %t\ncl_draw_only_deathnotices = %t\ncl_drawhud_force_deathnotices = -1\nspec_show_xray = true\ncl_drawhud_force_radar = -1\ncl_drawhud_force_teamid_overhead = -1\n", tc.crosshair, tc.overlaysHidden)
 					}
 					if strings.HasPrefix(line, "echo ") {
 						fmt.Fprintln(conn, strings.TrimPrefix(line, "echo "))
@@ -150,8 +170,8 @@ func TestTeamHUDCommandReadback(t *testing.T) {
 				}
 			}()
 			err = hideGameUI(listener.Addr().String())
-			if (err == nil) != applied {
-				t.Fatalf("applied=%v err=%v", applied, err)
+			if (err == nil) != (tc.overlaysHidden && tc.crosshair) {
+				t.Fatalf("state=%v err=%v", tc, err)
 			}
 			select {
 			case <-commands:
@@ -179,7 +199,7 @@ func TestRecordingUsesTeamHUD(t *testing.T) {
 }
 
 func TestTeamHUDDoesNotRequireCheats(t *testing.T) {
-	for _, forbidden := range []string{"sv_cheats", "cl_drawhud 0"} {
+	for _, forbidden := range []string{"sv_cheats", "cl_drawhud 0", "crosshair 0"} {
 		if strings.Contains(teamHUDCommand, forbidden) {
 			t.Fatalf("HUD still requires cheats: %s", teamHUDCommand)
 		}

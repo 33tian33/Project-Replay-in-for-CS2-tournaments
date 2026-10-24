@@ -24,7 +24,7 @@ type Service struct {
 	mappingBusy       bool
 	phaseAnchors      map[string]clockSample
 	relayState        relayStatus
-	hudHidden         bool
+	nativeHUDHidden   bool
 	maintenance       sync.RWMutex
 	liveDuration      map[string]float64
 	manualRounds      map[int]bool

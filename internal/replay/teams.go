@@ -126,6 +126,6 @@ func (a *Service) teamRoutes(mux, api *http.ServeMux) {
 			}
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		respond(w, 200, map[string]any{"ct": ct, "t": tt, "ct_score": number(obj(m, "team_ct"), "score"), "t_score": number(obj(m, "team_t"), "score"), "round": round, "clock": a.roundClocks[side].Clock, "fresh": nowMS()-a.gsiSeen[side] < 2000, "visible": !a.hudHidden})
+		respond(w, 200, map[string]any{"ct": ct, "t": tt, "ct_score": number(obj(m, "team_ct"), "score"), "t_score": number(obj(m, "team_t"), "score"), "round": round, "clock": a.roundClocks[side].Clock, "fresh": nowMS()-a.gsiSeen[side] < 2000, "visible": true})
 	})
 }

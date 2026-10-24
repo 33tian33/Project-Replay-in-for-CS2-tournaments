@@ -13,10 +13,10 @@ import (
 const fullHUDCommand = "gameui_hide; hideconsole; demo_ui_mode 0; cl_drawhud 1; crosshair 1; cl_draw_only_deathnotices 0; cl_drawhud_force_radar 0; cl_drawhud_force_deathnotices 0; cl_drawhud_force_teamid_overhead 0; spec_show_xray 1"
 
 // Hide native overlays without cheat-protected cl_drawhud or server sv_cheats.
-const teamHUDCommand = "gameui_hide; hideconsole; crosshair 0; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
+const teamHUDCommand = "gameui_hide; hideconsole; crosshair 1; demo_ui_mode 0; cl_draw_only_deathnotices 1; cl_drawhud_force_deathnotices -1; cl_drawhud_force_radar -1; cl_drawhud_force_teamid_overhead -1; spec_show_xray 1"
 
 func (a *Service) recordingHUDCommandLocked() string {
-	if a.s.TeamHUD || a.s.HUDActiveSource != "" || a.hudHidden {
+	if a.s.TeamHUD || a.s.HUDActiveSource != "" || a.nativeHUDHidden {
 		return teamHUDCommand
 	}
 	return fullHUDCommand
@@ -58,8 +58,8 @@ func hideGameUI(address string) error {
 	if err != nil {
 		return err
 	}
-	if value, known := hudValue(reply, "crosshair"); !known || value {
-		return fmt.Errorf("游戏未确认关闭准星：%.800s", reply)
+	if value, known := hudValue(reply, "crosshair"); !known || !value {
+		return fmt.Errorf("游戏未确认保留准星：%.800s", reply)
 	}
 	if value, known := hudValue(reply, "cl_draw_only_deathnotices"); !known || !value {
 		return fmt.Errorf("游戏未确认启用原生 HUD 隐藏模式：%.800s", reply)
@@ -123,17 +123,21 @@ func (a *Service) setHUD(visible bool) error {
 	if _, err = n.queryWithTimeout(command, time.Second); err != nil {
 		return fmt.Errorf("HUD 命令未收到游戏回执：%w", err)
 	}
-	reply, err := n.queryWithTimeout("cl_drawhud; cl_draw_only_deathnotices", time.Second)
+	reply, err := n.queryWithTimeout("cl_drawhud; crosshair; cl_draw_only_deathnotices", time.Second)
 	if err != nil {
 		return err
+	}
+	crosshair, crosshairKnown := hudValue(reply, "crosshair")
+	if !crosshairKnown || !crosshair {
+		return fmt.Errorf("游戏未确认保留准星：%.800s", reply)
 	}
 	value, known := hudValue(reply, "cl_drawhud")
 	deathOnly, deathKnown := hudValue(reply, "cl_draw_only_deathnotices")
 	if !deathKnown || deathOnly == visible || visible && (!known || !value) {
 		return fmt.Errorf("游戏未确认 HUD 状态；cl_drawhud 可能受命令权限限制。请检查 NetCon / Demo 权限，或使用“安装战队 HUD 到 OBS”。反馈：%.800s", reply)
 	}
-	a.s.TeamHUD = false
-	a.hudHidden = !visible
+	// The native UI switch must not hide the active OBS overlay.
+	a.nativeHUDHidden = !visible
 	a.logLocked("info", "已回读确认原生 HUD 状态；战队图标通过 OBS 战队 HUD 显示")
 	a.saveLocked()
 	return nil
@@ -182,7 +186,7 @@ func (a *Service) applyHUDLocked(host string) (map[string]any, error) {
 	a.s.HUDActiveSource = input
 	a.s.HUD = a.s.HUD.normalized()
 	a.s.TeamHUD = true
-	a.hudHidden = false
+	a.nativeHUDHidden = false
 	warning := ""
 	if a.s.Config.Mode == "live" {
 		var gameErr error
